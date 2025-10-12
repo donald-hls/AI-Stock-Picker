@@ -35,7 +35,7 @@ Units of the CRSP Variables:
     (shrout) Shares outstanding — thousands of shares (CRSP convention).
 """
 
-def ratio_calculation(S1, S2):
+def ratio_calculation(S1, S2, eps = 1e-9):
     """
         Helper function to calculate the ratio of 2 Sereis Objects,
         used for data cleaning functions.
@@ -43,10 +43,9 @@ def ratio_calculation(S1, S2):
     ratio_calculation(S1, S2) -> Series
     
     """
-    ratio = S1 / S2
-    # if not finite 
-    cleaned = ratio.mask(~np.isfinite(ratio), np.nan)
-    return cleaned
+    denominator = S2.mask(S2.abs() < eps, np.nan)
+    ratio = S1.divide(denominator)
+    return ratio.where(np.isfinite(ratio))
 
 
 def clean_data(csv_file):
@@ -139,8 +138,8 @@ def clean_data(csv_file):
     fund["avail_to"]   = fund["avail_to"].fillna(pd.Timestamp("2200-12-31")) #set a far date to avoid any issues. 
     
     # Monthly prices/returns frame
-    px_cols = ["SP Identifier","PERMNO","month","Monthly Price","Monthly Total Return",
-               "Monthly Total Return Excluding Dividends","Shares Outstanding (CRSP)"]
+    px_cols = ["SP Identifier", "PERMNO", "month", "Monthly Price", "Monthly Total Return",
+               "Monthly Total Return Excluding Dividends", "Shares Outstanding (CRSP)"]
     # Filter & Drop duplicates based on the PERMNO and month
     px = df.dropna(subset=["Monthly Price","Shares Outstanding (CRSP)"])[px_cols].drop_duplicates(subset=["PERMNO","month"])
     # Join fundamentals to each month using the availability window
@@ -192,8 +191,8 @@ def clean_data(csv_file):
     print(f"Number of companies: {merged['SP Identifier'].nunique():,}")
     
     # save the dataframe to an excel file to check data integrity
-    merged.to_excel("monthly_data.xlsx", index = False)
-    # Return the merged dataframe
+    # merged.to_excel("monthly_data.xlsx", index = False)
+
     return merged
 
 monthly_data = clean_data("data.csv")
