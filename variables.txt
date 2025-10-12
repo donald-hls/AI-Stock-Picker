@@ -1,0 +1,77 @@
+(gvkey) Standard and Poor\'\'s Identifier
+
+(conm) Company Name
+
+(tic) Ticker Symbol
+
+(lpermno) Historical CRSP PERMNO Link to COMPUSTAT Record
+
+(fyear) Data Year - Fiscal
+
+(fyr) Fiscal Year-end Month
+
+(epspx) Earnings Per Share (Basic) - Excluding Extraordinary Items
+
+(csho) Common Shares Outstanding
+
+(ceq) Common/Ordinary Equity - Total
+
+(ebitda) Earnings Before Interest
+
+(ebit) Earnings Before Interest and Taxes
+
+(dltt) Long-Term Debt - Total
+
+(dlc) Debt in Current Liabilities - Total
+
+(che) Cash and Short-Term Investments
+
+(dvpsx_f) Dividends per Share - Ex-Date - Fiscal
+
+(dvt) Dividends - Total
+
+(sale) Sales/Turnover (Net)
+
+(cogs) Cost of Goods Sold
+
+(oiadp) Operating Income After Depreciation
+
+(ni) Net Income (Loss)
+
+(lt) Liabilities - Total
+
+(at) Assets - Total
+
+(oancf) Operating Activities - Net Cash Flow
+
+(capx) Capital Expenditures
+
+(act) Current Assets - Total
+
+(lct) Current Liabilities - Total
+
+(xint) Interest and Related Expense - Total
+
+(ret) Total RE Property
+
+(prc) Participation Rights Certificates
+
+(prcc_c) Price Close - Annual - Calendar
+
+(prcc_f) Price Close - Annual - Fiscal
+
+(permno) PERMNO
+
+(permco) PERMCO
+
+(yyyymm) YYYYMM - Monthly Calendar Period Key
+
+(mthprc) Monthly Price
+
+(mthcaldt) Monthly Calendar Date
+
+(mthret) Monthly Total Return
+
+(mthretx) Monthly Return Without Dividends
+
+(shrout) Shares Outstanding
