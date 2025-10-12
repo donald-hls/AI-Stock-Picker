@@ -82,23 +82,6 @@ def clean_data(csv_file):
     df.rename(columns = column_name_mapping, inplace=True)
     # Select the columns based on the mapping
     df = df[[val for val in column_name_mapping.values()]]
-    # UNIT STANDARDIZATION DOCUMENTATION:
-    # 
-    # PRICE VARIABLES:
-    # - prcc_f (Annual Price Close Fiscal) = Split-adjusted prices in DOLLARS per share (USE THIS)
-    # - prcc_c (Annual Price Close Calendar) = Split-adjusted prices in DOLLARS per share
-    # - MthPrc (Monthly Price) = Unadjusted prices (EXCLUDED due to unit inconsistency)
-    #
-    # SHARES OUTSTANDING:
-    # - ShrOut (CRSP) = THOUSANDS of shares (multiply by 1000 for actual shares)
-    # - csho (Compustat) = MILLIONS of shares (multiply by 1,000,000 for actual shares)
-    #
-    # FINANCIAL STATEMENT ITEMS (converted to DOLLARS):
-    # - at, lt, sale, ni, ebitda, ebit, ceq, act, lct, che, cogs, capx, xint, oiadp
-    #
-    # PER-SHARE ITEMS (in DOLLARS per share):
-    # - epspx (EPS), dvpsx_f (Dividends per Share)
-    
     # STANDARDIZE ALL FINANCIAL VALUES TO DOLLARS (not millions)
     # Convert all financial statement items from millions to actual dollars
     financial_vars = ["Total Assets", "Total Liabilities", "Sales", "EBIT", "COGS", 
@@ -114,12 +97,31 @@ def clean_data(csv_file):
     # Calculate Market Cap using CRSP method (following Wharton documentation)
     # MarketCap = PRC × SHROUT × 1000 (where SHROUT is in thousands, multiply by 1000 for actual shares)
     df["Market Cap"] = df["Annual Price Close (Fiscal)"] * df["Shares Outstanding (CRSP)"] * 1000
+    # Adding some key financial ratios and metrics 
     
-    # FINAL STANDARDIZED UNITS:
-    # - All prices: DOLLARS per share
-    # - All financial statement items: DOLLARS (not millions)
-    # - Market Cap: DOLLARS
-    # - Shares outstanding: actual shares (not thousands/millions)
+    # VALUATION METRICS
+    df["P/E Ratio"] = df["Market Cap"] / df["Net Income"]  # Price-to-Earnings
+    df["P/B Ratio"] = df["Market Cap"] / df["Common Equity"]  # Price-to-Book
+    df["P/S Ratio"] = df["Market Cap"] / df["Sales"]  # Price-to-Sales
+    # PROFITABILITY METRICS
+    df["ROE"] = df["Net Income"] / df["Common Equity"]  # Return on Equity
+    df["ROA"] = df["Net Income"] / df["Total Assets"]  # Return on Assets
+    df["Operating Margin"] = df["Operating Income After Depreciation"] / df["Sales"]
+    df["Net Profit Margin"] = df["Net Income"] / df["Sales"]
+    df["EBITDA Margin"] = df["EBITDA"] / df["Sales"]
+    # LEVERAGE & SOLVENCY METRICS
+    df["Total Debt"] = df["Debt in Current Liabilities"] + df["Debt in Long-Term Debt"]
+    df["Debt-to-Equity"] = df["Total Debt"] / df["Common Equity"]
+    df["Debt-to-Assets"] = df["Total Debt"] / df["Total Assets"]
+    df["Interest Coverage"] = df["EBIT"] / df["Interest Related Expense"]
+    df["Current Ratio"] = df["Current Assets"] / df["Current Liabilities"]
+    
+    
+    # PER-SHARE METRICS (using actual shares from ShrOut * 1000)
+    actual_shares = df["Shares Outstanding (CRSP)"] * 1000
+    df["Book Value per Share"] = df["Common Equity"] / actual_shares
+    df["Sales per Share"] = df["Sales"] / actual_shares
+    df["EPS (Calculated)"] = df["Net Income"] / actual_shares
     
     print(df.head())
 clean_data("data.csv")
