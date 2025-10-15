@@ -3,6 +3,7 @@ import numpy as np
 # MonthEnd to target the end of a Month.
 from pandas.tseries.offsets import MonthEnd
 from pandas_datareader import data as pdr
+from utility import ratio_calculation
 
 # Import configuration constants
 from config import (
@@ -49,19 +50,6 @@ Units of the CRSP Variables:
     (mthretx) Monthly return without dividends — decimal. 
     (shrout) Shares outstanding — thousands of shares (CRSP convention).
 """
-
-def ratio_calculation(S1, S2, eps = 1e-9):
-    """
-        Helper function to calculate the ratio of 2 Sereis Objects,
-        used for data cleaning functions.
-    
-    ratio_calculation(S1, S2) -> Series
-    
-    """
-    denominator = S2.mask(S2.abs() < eps, np.nan)
-    ratio = S1.divide(denominator)
-    return ratio.where(np.isfinite(ratio))
-
 
 def clean_data(csv_file):
     """
@@ -264,8 +252,9 @@ def add_macro_features(mon_data, macro_data, lag_month = 1):
     
 retval = add_macro_features(monthly_data, macro_data)
 
-print(f"\n✅ Macro features added successfully!")
-print(f"Final dataset shape: {retval.shape}")
-print(f"New columns added: {[col for col in retval.columns if col not in monthly_data.columns]}")
-print(f"\nSample of merged data:")
-print(retval[["SP Identifier", "company_name", "month", "Monthly Price", "VIX", "3Mon-10Y", "unemploy"]].head())
+print("------------------------------------------------")
+print("Final dataset shape: {retval.shape}")
+print("New columns added: {[col for col in retval.columns if col not in monthly_data.columns]}")
+print("Sample of merged data:")
+print(retval.head())
+print("------------------------------------------------")
