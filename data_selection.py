@@ -1,5 +1,20 @@
 import pandas as pd 
 import numpy as np 
+# MonthEnd to target the end of a Month.
+from pandas.tseries.offsets import MonthEnd
+from pandas_datareader import data as pdr
+
+# Import configuration constants
+from config import (
+    COLUMN_NAME_MAPPING,
+    FINANCIAL_VARS_IN_MILLIONS,
+    FUNDAMENTAL_COLS,
+    PRICE_COLS,
+    PUBLICATION_LAG_MONTHS,
+    FAR_FUTURE_DATE,
+    MILLION_TO_DOLLARS,
+    THOUSAND_TO_ACTUAL
+)
 
 """
 Units of the CRSP Variables:
@@ -61,53 +76,19 @@ def clean_data(csv_file):
 
     """
     df = pd.read_csv(csv_file)
-    column_name_mapping = {
-        "gvkey": "SP Identifier",
-        "PERMNO": "PERMNO",
-        "fyear": "Fiscal Year",
-        "MthCalDt": "Monthly Calendar Date",
-        "MthRet": "Monthly Total Return",
-        "MthRetx": "Monthly Total Return Excluding Dividends",
-        "conm": "company_name",
-        "epspx": "EPS",
-        "sale": "Sales",
-        "ebit": "EBIT",
-        "cogs": "COGS",
-        "oiadp": "Operating Income After Depreciation",
-        "ebitda": "EBITDA",
-        "capx": "Capital Expenditures",
-        "xint": "Interest Related Expense",
-        "at": "Total Assets",
-        "lt": "Total Liabilities",
-        "act": "Current Assets",
-        "lct": "Current Liabilities",
-        "che": "Cash and Short-Term Investments",
-        "dlc": "Debt in Current Liabilities",
-        "dltt": "Debt in Long-Term Debt",
-        "ceq": "Common Equity",
-        "ni": "Net Income",
-        "dvpsx_f": "Dividends per Share",
-        "ShrOut": "Shares Outstanding (CRSP)",
-        "MthPrc": "Monthly Price"
-    }
+    
     # Rename the columns based on the mapping
-    df.rename(columns = column_name_mapping, inplace=True)
+    df.rename(columns=COLUMN_NAME_MAPPING, inplace=True)
 
     # Select the columns based on the mapping and makes a copy
-    df = df[[val for val in column_name_mapping.values()]].copy()
+    df = df[[val for val in COLUMN_NAME_MAPPING.values()]].copy()
     # Convert to Datetime objects 
     df["Monthly Calendar Date"] = pd.to_datetime(df["Monthly Calendar Date"], errors="coerce")
     
     # STANDARDIZE ALL FINANCIAL VALUES TO DOLLARS (not millions)
     # Convert all financial statement data from millions to actual dollars
-    financial_vars = ["Total Assets", "Total Liabilities", "Sales", "EBIT", "COGS", 
-                     "Operating Income After Depreciation", "EBITDA", "Capital Expenditures",
-                     "Interest Related Expense", "Current Assets", "Current Liabilities", 
-                     "Cash and Short-Term Investments", "Debt in Current Liabilities",
-                     "Debt in Long-Term Debt", "Common Equity", "Net Income"]
-    
-    for item in financial_vars:
-            df[item] = df[item] * 1_000_000  # Convert millions to dollars
+    for item in FINANCIAL_VARS_IN_MILLIONS:
+        df[item] = df[item] * MILLION_TO_DOLLARS
     # Using Monthly Data 
         # Why ? 
             # 1. More data points, lower estimation error 
@@ -118,13 +99,8 @@ def clean_data(csv_file):
 
     # Build a fundamentals frame (annual) 
     # Build a prices frame (monthly)
-    fundamental_cols = ["SP Identifier","Fiscal Year","company_name","EPS","Sales","EBIT","COGS",
-                 "Operating Income After Depreciation","EBITDA","Capital Expenditures",
-                 "Interest Related Expense","Total Assets","Total Liabilities","Current Assets",
-                 "Current Liabilities","Cash and Short-Term Investments","Debt in Current Liabilities",
-                 "Debt in Long-Term Debt","Common Equity","Net Income","Dividends per Share"]
     # Using the fundamental_cols, drop duplicates based on the SP Identifier and Fiscal Year
-    fund = df.drop_duplicates(subset=["SP Identifier","Fiscal Year"])[[col for col in fundamental_cols if col in df.columns]].copy()
+    fund = df.drop_duplicates(subset=["SP Identifier","Fiscal Year"])[[col for col in FUNDAMENTAL_COLS if col in df.columns]].copy()
 
     # Create a 4-month publication lag window per fiscal year
     # Assume FY ends in calendar year Fiscal Year with FY-end = Dec 31 of that year (adjust if you have FYR).
@@ -132,19 +108,17 @@ def clean_data(csv_file):
     # Use them only when the market could actually "know" them
     # avail_from: the first month-end when a given fiscal-year snapshot is considered public/usable.
     # this is to block "look ahead bias"
-    fund["avail_from"] = (fund["fiscalYear_end"] + pd.offsets.MonthEnd(4))  # FY + 4 months
-    # avail_to: the last day this snapshot remains the “latest available” before it’s superseded.
+    fund["avail_from"] = (fund["fiscalYear_end"] + pd.offsets.MonthEnd(PUBLICATION_LAG_MONTHS))
+    # avail_to: the last day this snapshot remains the "latest available" before it's superseded.
     fund["avail_to"]   = fund.groupby("SP Identifier")["avail_from"].shift(-1) - pd.Timedelta(days=1)
-    fund["avail_to"]   = fund["avail_to"].fillna(pd.Timestamp("2200-12-31")) #set a far date to avoid any issues. 
+    fund["avail_to"]   = fund["avail_to"].fillna(pd.Timestamp(FAR_FUTURE_DATE)) 
     
     # Monthly prices/returns frame
-    px_cols = ["SP Identifier", "PERMNO", "month", "Monthly Price", "Monthly Total Return",
-               "Monthly Total Return Excluding Dividends", "Shares Outstanding (CRSP)"]
     # Filter & Drop duplicates based on the PERMNO and month
-    px = df.dropna(subset=["Monthly Price","Shares Outstanding (CRSP)"])[px_cols].drop_duplicates(subset=["PERMNO","month"])
+    px = df.dropna(subset=["Monthly Price","Shares Outstanding (CRSP)"])[PRICE_COLS].drop_duplicates(subset=["PERMNO","month"])
     # Join fundamentals to each month using the availability window
     # Remove any potential duplicate columns before merge
-    fundamental_cols_clean = [col for col in fundamental_cols if col in fund.columns and col not in ["SP Identifier"]]
+    fundamental_cols_clean = [col for col in FUNDAMENTAL_COLS if col in fund.columns and col not in ["SP Identifier"]]
     # Keep the timing window and the fundamental cols
     fund_long = fund[["SP Identifier", "avail_from","avail_to"] + fundamental_cols_clean].copy()
 
@@ -155,7 +129,7 @@ def clean_data(csv_file):
     
     # Calculate the Monthly Market Cap
     # Use abs because CRSP sometimes stores negative prices as a convention.
-    merged["Monthly Market Cap"] = merged["Monthly Price"].abs() * merged["Shares Outstanding (CRSP)"] * 1000
+    merged["Monthly Market Cap"] = merged["Monthly Price"].abs() * merged["Shares Outstanding (CRSP)"] * THOUSAND_TO_ACTUAL
     # Calculate some financial ratios (Monthly)
     
     # P/E: Price/Earnings: Market Cap / Net Income
@@ -192,11 +166,106 @@ def clean_data(csv_file):
     
     # save the dataframe to an excel file to check data integrity
     # merged.to_excel("monthly_data.xlsx", index = False)
-
     return merged
 
 monthly_data = clean_data("data.csv")
 
-print(monthly_data.head())
+def build_fy_window(fundamentals_df):
+    """
+    build_fy_window turns each firm's fundamental snapshot into a a 
+    time window when that snapshot is known to the market, to avoid look-ahead bias.
+    """
+    # builds the fiscal year end date
+    fy_end = pd.to_datetime(fundamentals_df["Fiscal Year"].astype(str) + 
+                            "-" + fundamentals_df["fyr"].fillna(12).astype(int).astype(str) + 
+                            "-01") + MonthEnd(0)
+    
+    fundamentals_df['fiscalYear_end'] = fy_end
+    # assuming a 4 month lag window 
+    fundamentals_df['avail_from'] = (fundamentals_df["fiscalYear_end"] + MonthEnd(4))
+    # group by SP Identifier to look at one firm at a time
+    # shift -1 to look at the future avail_from date
+    fundamentals_df['avail_to'] = fundamentals_df.groupby("SP Identifier")["avail_from"].shift(-1) - pd.Timedelta(days=1)
+    fundamentals_df['avail_to'] = fundamentals_df['avail_to'].fillna(pd.Timestamp("2200-12-31"))
+    return fundamentals_df
 
-print(monthly_data.columns)
+def get_macro_data():
+    """
+    get_macro_data retrieves macroeconomic data from the Federal Reserve Bank of St. Louis (FRED) API.
+    The function returns a pandas dataframe with the macroeconomic data such as VIX, Unemployment Rate, etc.
+    
+    - Look at 3M-10Y Yield Spread - recession/slowdown indicator
+    - Look at Monthly Unemployment Rate
+    - Look at the VIX Monthly Index
+    - Look at Corporate Bond Spread (alternative to IG OAS)
+    """
+    try:
+        # VIX: Volatility Index
+        VIX = pdr.get_data_fred("VIXCLS", start="2010-01-01")
+        # 10Y Yield (Monthly)
+        Yield10 = pdr.get_data_fred("DGS10", start="2010-01-01")
+        # 3m Treasury Yield (Monthly)
+        Yiled3M = pdr.get_data_fred("TB3MS", start="2010-01-01")
+        # Employment Rate (Monthly)
+        unemploy = pdr.get_data_fred("UNRATE", start="2010-01-01") 
+        # Corporate Bond Spread - ICE BofA US Corporate Index Option-Adjusted Spread
+        # This is the spread over Treasury yields for investment grade corporate bonds
+        try:
+            IG_OAS = pdr.get_data_fred("BAMLC0A0CM", start="2010-01-01")
+            oas_data = IG_OAS['BAMLC0A0CM']
+        except:
+            # Fallback to Moody's Corporate Bond Yield
+            print("Warning: BAMLC0A0CM not available, using Moody's Corporate Bond Yield as alternative")
+            corp_yield = pdr.get_data_fred("BAA", start="2010-01-01")
+            oas_data = corp_yield['BAA'] - Yield10['DGS10']  # Corporate spread over 10Y Treasury
+        
+        monthly_data = pd.DataFrame(
+            {
+                # resample to Monthly and take the last value
+                "VIX": VIX['VIXCLS'].resample('ME').last(),
+                "Yield10": Yield10['DGS10'].resample('ME').last(),
+                "Yiled3M": Yiled3M['TB3MS'].resample('ME').last(),
+                "unemploy": unemploy['UNRATE'].resample('ME').last(),
+                "IG_OAS": oas_data.resample('ME').last()
+            }
+        ).dropna(how = "all")
+        
+        # Reset index to get month as a column
+        monthly_data = monthly_data.reset_index()
+        monthly_data.rename(columns={'DATE': 'Month'}, inplace=True)
+        # some calculations:
+        monthly_data["3Mon-10Y"] = monthly_data["Yield10"] - monthly_data["Yiled3M"]
+        monthly_data["Δ in Unemploy"] = monthly_data["unemploy"].diff()
+        return monthly_data
+    
+    except Exception as e:
+        print(f"Error fetching macro data: {e}")
+        print("Returning empty DataFrame with expected columns")
+        return pd.DataFrame(columns=['Month', 'VIX', 'Yield10', 'Yiled3M', 'unemploy', 'IG_OAS', '3Mon-10Y', 'Δ in Unemploy'])
+
+macro_data = get_macro_data()
+
+def add_macro_features(mon_data, macro_data, lag_month = 1):
+    """
+    add_macro_features adds macroeconomic features to the monthly data.
+    The function returns a pandas dataframe with the macroeconomic features.
+    By default, the function sets the lag_month = 1. (not knowing the economic data until the next month)
+        - set to 1Mon by default, can tweak to 2M, 3M, etc (for more forward looking data)
+    """
+    macro_data_copy = macro_data.sort_values(by = "Month").copy()
+    
+    # Apply time shift to macro variables (not including Month column)
+    for col in [col for col in macro_data_copy.columns if col != "Month"]:
+        # applying a time shift 
+        macro_data_copy[col] = macro_data_copy[col].shift(lag_month)
+        
+    return mon_data.merge(macro_data_copy, left_on='month', right_on='Month', how = 'left')
+    
+    
+retval = add_macro_features(monthly_data, macro_data)
+
+print(f"\n✅ Macro features added successfully!")
+print(f"Final dataset shape: {retval.shape}")
+print(f"New columns added: {[col for col in retval.columns if col not in monthly_data.columns]}")
+print(f"\nSample of merged data:")
+print(retval[["SP Identifier", "company_name", "month", "Monthly Price", "VIX", "3Mon-10Y", "unemploy"]].head())
