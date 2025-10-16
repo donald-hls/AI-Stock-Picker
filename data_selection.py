@@ -14,7 +14,9 @@ from config import (
     PUBLICATION_LAG_MONTHS,
     FAR_FUTURE_DATE,
     MILLION_TO_DOLLARS,
-    THOUSAND_TO_ACTUAL
+    THOUSAND_TO_ACTUAL,
+    TRAIN_END_DATE,
+    VALID_END_DATE
 )
 
 def clean_data(csv_file):
@@ -299,12 +301,30 @@ def cross_sectional_windsorize(monthly_df, feature_cols):
 windsorized_data = cross_sectional_windsorize(computed_data, feature_cols)
 print(windsorized_data.head())
 
-# split the data into training, validation, and test sets. 
-
-def split_data(df, start_date, end_date):
+# split the data into training, validation, and test sets.
+def split_data(df, train_end = TRAIN_END_DATE, valid_end = VALID_END_DATE):
     """
     split_data splits the data into training, validation, and test sets.
-    
-    split_data(df, start_date, end_date): DataFrame, datetime, datetime -> DataFrame, DataFrame, DataFrame
+    split_data(df, train_end, valid_end): DataFrame, str, str -> Series, Series, Series
     """
+    train_data = df["month"] <= pd.to_datetime(train_end)
+    valid_data = (df["month"] > pd.to_datetime(train_end)) & (df["month"] <= pd.to_datetime(valid_end))
+    test_data = df["month"] > pd.to_datetime(valid_end)
     
+    # Print summary
+    print("=== TIME SPLIT SUMMARY ===")
+    print(f"Training: {df[train_data]['month'].min().strftime('%Y-%m')} to {df[train_data]['month'].max().strftime('%Y-%m')} ({train_data.sum():,} obs)")
+    print(f"Validation: {df[valid_data]['month'].min().strftime('%Y-%m')} to {df[valid_data]['month'].max().strftime('%Y-%m')} ({valid_data.sum():,} obs)")
+    print(f"Test: {df[test_data]['month'].min().strftime('%Y-%m')} to {df[test_data]['month'].max().strftime('%Y-%m')} ({test_data.sum():,} obs)")
+    
+    return train_data, valid_data, test_data 
+
+train_data, valid_data, test_data = split_data(windsorized_data)
+
+print(train_data.sum())
+print(valid_data.sum())
+print(test_data.sum())
+
+print(windsorized_data[train_data].head())
+print(windsorized_data[valid_data].head())
+print(windsorized_data[test_data].head())
