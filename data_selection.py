@@ -17,40 +17,6 @@ from config import (
     THOUSAND_TO_ACTUAL
 )
 
-"""
-Units of the CRSP Variables:
-    (fyear) Fiscal data year — year number.
-    (fyr) Fiscal year-end month — 1 – 12.
-    (epspx) EPS (Basic, excl. extraordinary) — USD/share. 
-    (csho) Common shares outstanding — millions of shares (used with PRCC_* to compute market cap in $mm). 
-    (ceq) Common equity, total — USD millions. 
-    (ebitda) EBITDA — USD millions. 
-    (ebit) EBIT — USD millions. 
-    (dltt) Long-term debt, total — USD millions. 
-    (dlc) Debt in current liabilities — USD millions. 
-    (che) Cash & short-term investments — USD millions. 
-    (dvpsx_f) Dividends per share (ex-date, fiscal) — USD/share. 
-    (dvt) Dividends, total — USD millions. 
-    (sale) Sales/Turnover (net) — USD millions (explicitly stated). 
-    (cogs) Cost of goods sold — USD millions (explicit note). 
-    (oiadp) Operating income after depreciation — USD millions. 
-    (ni) Net income (loss) — USD millions. 
-    (lt) Liabilities, total — USD millions. 
-    (at) Assets, total — USD millions. 
-    (oancf) Net cash flow from operating activities — USD millions. 
-    (capx) Capital expenditures — USD millions. 
-    (act) Current assets — USD millions. 
-    (lct) Current liabilities — USD millions. 
-    (xint) Interest and related expense — USD millions. 
-    (prcc_f) Price close (annual, fiscal) — USD/share. 
-    (prcc_c) Price close (annual, calendar) — USD/share. 
-    (yyyymm) Month key — YYYYMM integer.
-    (mthprc) Month-end price — USD/share. 
-    (mthret) Monthly total return (with dividends) — decimal (e.g., 0.05 = 5%). 
-    (mthretx) Monthly return without dividends — decimal. 
-    (shrout) Shares outstanding — thousands of shares (CRSP convention).
-"""
-
 def clean_data(csv_file):
     """
     clean_data reads in a csv file and cleans the data by
@@ -254,8 +220,8 @@ retval = add_macro_features(monthly_data, macro_data)
 
 print("------------------------------------------------")
 print(f"Final dataset shape: {retval.shape}")
-# print(f"New columns added: {[col for col in retval.columns if col not in monthly_data.columns]}")
-# print("Sample of merged data:")
+print(f"New columns added: {[col for col in retval.columns if col not in monthly_data.columns]}")
+print("Sample of merged data:")
 print(retval.head())
 print("------------------------------------------------")
 
@@ -332,3 +298,13 @@ def cross_sectional_windsorize(monthly_df, feature_cols):
     
 windsorized_data = cross_sectional_windsorize(computed_data, feature_cols)
 print(windsorized_data.head())
+
+# split the data into training, validation, and test sets. 
+
+def split_data(df, start_date, end_date):
+    """
+    split_data splits the data into training, validation, and test sets.
+    
+    split_data(df, start_date, end_date): DataFrame, datetime, datetime -> DataFrame, DataFrame, DataFrame
+    """
+    
