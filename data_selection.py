@@ -193,7 +193,7 @@ def get_macro_data():
         # 10Y Yield (Monthly)
         Yield10 = pdr.get_data_fred("DGS10", start="2010-01-01")
         # 3m Treasury Yield (Monthly)
-        Yiled3M = pdr.get_data_fred("TB3MS", start="2010-01-01")
+        Yield3M = pdr.get_data_fred("TB3MS", start="2010-01-01")
         # Employment Rate (Monthly)
         unemploy = pdr.get_data_fred("UNRATE", start="2010-01-01") 
         # Corporate Bond Spread - ICE BofA US Corporate Index Option-Adjusted Spread
@@ -212,7 +212,7 @@ def get_macro_data():
                 # resample to Monthly and take the last value
                 "VIX": VIX['VIXCLS'].resample('ME').last(),
                 "Yield10": Yield10['DGS10'].resample('ME').last(),
-                "Yiled3M": Yiled3M['TB3MS'].resample('ME').last(),
+                "Yield3M": Yield3M['TB3MS'].resample('ME').last(),
                 "unemploy": unemploy['UNRATE'].resample('ME').last(),
                 "IG_OAS": oas_data.resample('ME').last()
             }
@@ -222,14 +222,14 @@ def get_macro_data():
         monthly_data = monthly_data.reset_index()
         monthly_data.rename(columns={'DATE': 'Month'}, inplace=True)
         # some calculations:
-        monthly_data["3Mon-10Y"] = monthly_data["Yield10"] - monthly_data["Yiled3M"]
+        monthly_data["3Mon-10Y"] = monthly_data["Yield10"] - monthly_data["Yield3M"]
         monthly_data["Δ in Unemploy"] = monthly_data["unemploy"].diff()
         return monthly_data
     
     except Exception as e:
         print(f"Error fetching macro data: {e}")
         print("Returning empty DataFrame with expected columns")
-        return pd.DataFrame(columns=['Month', 'VIX', 'Yield10', 'Yiled3M', 'unemploy', 'IG_OAS', '3Mon-10Y', 'Δ in Unemploy'])
+        return pd.DataFrame(columns=['Month', 'VIX', 'Yield10', 'Yield3M', 'unemploy', 'IG_OAS', '3Mon-10Y', 'Δ in Unemploy'])
 
 macro_data = get_macro_data()
 
@@ -253,8 +253,65 @@ def add_macro_features(mon_data, macro_data, lag_month = 1):
 retval = add_macro_features(monthly_data, macro_data)
 
 print("------------------------------------------------")
-print("Final dataset shape: {retval.shape}")
-print("New columns added: {[col for col in retval.columns if col not in monthly_data.columns]}")
+print(f"Final dataset shape: {retval.shape}")
+print(f"New columns added: {[col for col in retval.columns if col not in monthly_data.columns]}")
 print("Sample of merged data:")
 print(retval.head())
 print("------------------------------------------------")
+
+def compute_features(monthly_df):
+    """
+    Compute some new features for the monthly data, and puts a lag on the 
+    newly added features such as YoY growth, momentum, volatility, and beta.
+    compute_features(monthly_df): DataFrame -> DataFrame, list
+    """
+    monthly_df = monthly_df.sort_values(by=["SP Identifier", "month"]).copy()
+    # Rename Mapping rule 
+    RENAME = {
+        "P/E":"PE","P/B":"PB","P/S":"PS",
+        "Operating Margin":"OperatingMargin","EBITDA Margin":"EbitdaMargin",
+        "Debt/Equity":"DebtToEquity","Debt/Assets":"DebtToAssets",
+        "Interest Coverage":"IntCoverage","Current Ratio":"CurrentRatio",
+        "Monthly Market Cap":"mcap"
+    }
+    for key, val in RENAME.items():
+        if key in monthly_df.columns:
+            monthly_df.rename(columns={key: val}, inplace = True)
+    
+    # forward fill annual fundamentals with availability window
+    for col in ["Sales","Net Income","Operating Income After Depreciation",
+                "EBITDA","Common Equity","Total Assets","EPS","COGS"]:
+        if col in monthly_df.columns:
+            monthly_df[col + "_ff"] = monthly_df.groupby("SP Identifier")[col].ffill()
+            
+    # Year over Year Growth (YOY)
+    monthly_df["Sales_YoY"] = monthly_df.groupby("SP Identifier")["Sales_ff"].pct_change(12, fill_method = None)
+    monthly_df["EPS_YoY"] = monthly_df.groupby("SP Identifier")["EPS_ff"].pct_change(12, fill_method = None)
+    # Momentum - calculate cumulative returns over different periods
+    # Use transform to avoid index issues
+    monthly_df["momentum_12_1"] = monthly_df.groupby("SP Identifier")["Monthly Total Return"].transform(lambda x: x.rolling(12).apply(lambda y: (1 + y).prod() - 1, raw=True))
+    monthly_df["momentum_6"]    = monthly_df.groupby("SP Identifier")["Monthly Total Return"].transform(lambda x: x.rolling(6).apply(lambda y: (1 + y).prod() - 1, raw=True))
+    monthly_df["momentum_3"]    = monthly_df.groupby("SP Identifier")["Monthly Total Return"].transform(lambda x: x.rolling(3).apply(lambda y: (1 + y).prod() - 1, raw=True))
+    monthly_df["rev_1m"]        = -monthly_df.groupby("SP Identifier")["Monthly Total Return"].shift(1)
+    
+    # Risk
+    # equal-weight market proxy by month, aligned to each row
+    mkt = monthly_df.groupby("month")["Monthly Total Return"].transform("mean")
+    monthly_df["vol_12m"]   = monthly_df.groupby("SP Identifier")["Monthly Total Return"].transform(lambda x: x.rolling(12).std())
+    # rolling beta vs market over 24 months
+    monthly_df["beta_24m"]  = monthly_df.groupby("SP Identifier")["Monthly Total Return"].transform(lambda x: x.rolling(24).cov(mkt) / x.rolling(24).var())
+    # put lag on the newly added features. 
+    accounting_cols = ["PE","PB","PS","OperatingMargin","EbitdaMargin","DebtToEquity","DebtToAssets","IntCoverage","CurrentRatio"]
+    calculated_cols = ["Sales_YoY","EPS_YoY","momentum_12_1","momentum_6","momentum_3","vol_12m","beta_24m"]
+    combined_cols = accounting_cols + calculated_cols
+    
+    for col in combined_cols:
+        if col in monthly_df.columns:
+            monthly_df[col] = monthly_df.groupby("SP Identifier")[col].shift(1)
+            
+    FEATURE_COLS = [c for c in accounting_cols + calculated_cols if c in monthly_df.columns]
+    return monthly_df, FEATURE_COLS
+
+computed_data, feature_cols = compute_features(retval)
+
+print(feature_cols)
