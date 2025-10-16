@@ -3,7 +3,7 @@ import numpy as np
 # MonthEnd to target the end of a Month.
 from pandas.tseries.offsets import MonthEnd
 from pandas_datareader import data as pdr
-from utility import ratio_calculation
+from utility import ratio_calculation, limiting_extreme_values
 
 # Import configuration constants
 from config import (
@@ -254,8 +254,8 @@ retval = add_macro_features(monthly_data, macro_data)
 
 print("------------------------------------------------")
 print(f"Final dataset shape: {retval.shape}")
-print(f"New columns added: {[col for col in retval.columns if col not in monthly_data.columns]}")
-print("Sample of merged data:")
+# print(f"New columns added: {[col for col in retval.columns if col not in monthly_data.columns]}")
+# print("Sample of merged data:")
 print(retval.head())
 print("------------------------------------------------")
 
@@ -314,4 +314,21 @@ def compute_features(monthly_df):
 
 computed_data, feature_cols = compute_features(retval)
 
-print(feature_cols)
+def cross_sectional_windsorize(monthly_df, feature_cols):
+    """
+    cross_sectional_windsorize windsorizes the data across all companies in a given month.
+    the function calls the helper function limiting_extreme_values to windsorize the data in Series. 
+    
+    cross_sectional_windsorize(monthly_df, feature_cols): DataFrame, list -> DataFrame
+    """
+    retval = monthly_df.copy()
+    # partitions rows by month  
+    for mon, idx in retval.groupby("month").groups.items():
+        block = retval.loc[idx, feature_cols]
+        blockWindsorized = block.apply(limiting_extreme_values, axis = 0)
+        # normalize the data
+        retval.loc[idx, feature_cols] = (blockWindsorized - blockWindsorized.mean()) / blockWindsorized.std()
+    return retval 
+    
+windsorized_data = cross_sectional_windsorize(computed_data, feature_cols)
+print(windsorized_data.head())
