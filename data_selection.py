@@ -4,8 +4,6 @@ import numpy as np
 from pandas.tseries.offsets import MonthEnd
 from pandas_datareader import data as pdr
 from utility import ratio_calculation, limiting_extreme_values
-
-# Import configuration constants
 from config import (
     COLUMN_NAME_MAPPING,
     FINANCIAL_VARS_IN_MILLIONS,
@@ -25,22 +23,18 @@ def clean_data(csv_file):
     removing/filling in the missing values and converting the data to the 
     correct format for the model. 
     The function returns a pandas dataframe with selected columns. 
-    
+
     The data is obtained from Wharton Research Data Services. 
-    
     clean_data(csv_file): CSV_File -> DataFrame
 
     """
     df = pd.read_csv(csv_file)
-    
     # Rename the columns based on the mapping
     df.rename(columns=COLUMN_NAME_MAPPING, inplace=True)
-
     # Select the columns based on the mapping and makes a copy
     df = df[[val for val in COLUMN_NAME_MAPPING.values()]].copy()
     # Convert to Datetime objects 
     df["Monthly Calendar Date"] = pd.to_datetime(df["Monthly Calendar Date"], errors="coerce")
-    
     # STANDARDIZE ALL FINANCIAL VALUES TO DOLLARS (not millions)
     # Convert all financial statement data from millions to actual dollars
     for item in FINANCIAL_VARS_IN_MILLIONS:
@@ -52,12 +46,10 @@ def clean_data(csv_file):
             # 3. Monthly returns capture regime shifts and co-movements that annual aggregation washes out.
     # Month key
     df["month"] = df["Monthly Calendar Date"].dt.to_period("M").dt.to_timestamp("M")
-
     # Build a fundamentals frame (annual) 
     # Build a prices frame (monthly)
     # Using the fundamental_cols, drop duplicates based on the SP Identifier and Fiscal Year
     fund = df.drop_duplicates(subset=["SP Identifier","Fiscal Year"])[[col for col in FUNDAMENTAL_COLS if col in df.columns]].copy()
-
     # Create a 4-month publication lag window per fiscal year
     # Assume FY ends in calendar year Fiscal Year with FY-end = Dec 31 of that year (adjust if you have FYR).
     fund["fiscalYear_end"] = pd.to_datetime(fund["Fiscal Year"].astype(str) + "-12-31")
@@ -77,7 +69,6 @@ def clean_data(csv_file):
     fundamental_cols_clean = [col for col in FUNDAMENTAL_COLS if col in fund.columns and col not in ["SP Identifier"]]
     # Keep the timing window and the fundamental cols
     fund_long = fund[["SP Identifier", "avail_from","avail_to"] + fundamental_cols_clean].copy()
-
     merged = px.merge(fund_long, on = "SP Identifier", how = "left")
     # Filter by Month within the timing window 
     mask = (merged["month"] >= merged["avail_from"]) & (merged["month"] <= merged["avail_to"])
@@ -119,7 +110,6 @@ def clean_data(csv_file):
     print(f"Date range: {merged['month'].min()} to {merged['month'].max()}")
     # Print the number of companies
     print(f"Number of companies: {merged['SP Identifier'].nunique():,}")
-    
     # save the dataframe to an excel file to check data integrity
     # merged.to_excel("monthly_data.xlsx", index = False)
     return merged
@@ -149,7 +139,6 @@ def get_macro_data():
     """
     get_macro_data retrieves macroeconomic data from the Federal Reserve Bank of St. Louis (FRED) API.
     The function returns a pandas dataframe with the macroeconomic data such as VIX, Unemployment Rate, etc.
-    
     - Look at 3M-10Y Yield Spread - recession/slowdown indicator
     - Look at Monthly Unemployment Rate
     - Look at the VIX Monthly Index
@@ -174,7 +163,6 @@ def get_macro_data():
             print("Warning: BAMLC0A0CM not available, using Moody's Corporate Bond Yield as alternative")
             corp_yield = pdr.get_data_fred("BAA", start="2010-01-01")
             oas_data = corp_yield['BAA'] - Yield10['DGS10']  # Corporate spread over 10Y Treasury
-        
         monthly_data = pd.DataFrame(
             {
                 # resample to Monthly and take the last value
@@ -193,7 +181,6 @@ def get_macro_data():
         monthly_data["3Mon-10Y"] = monthly_data["Yield10"] - monthly_data["Yield3M"]
         monthly_data["Δ in Unemploy"] = monthly_data["unemploy"].diff()
         return monthly_data
-    
     except Exception as e:
         print(f"Error fetching macro data: {e}")
         print("Returning empty DataFrame with expected columns")
@@ -201,7 +188,9 @@ def get_macro_data():
 
 macro_data = get_macro_data()
 
+
 def add_macro_features(mon_data, macro_data, lag_month = 1):
+    
     """
     add_macro_features adds macroeconomic features to the monthly data.
     The function returns a pandas dataframe with the macroeconomic features.
@@ -214,7 +203,6 @@ def add_macro_features(mon_data, macro_data, lag_month = 1):
     for col in [col for col in macro_data_copy.columns if col != "Month"]:
         # applying a time shift 
         macro_data_copy[col] = macro_data_copy[col].shift(lag_month)
-        
     return mon_data.merge(macro_data_copy, left_on='month', right_on='Month', how = 'left')
     
     
@@ -261,7 +249,6 @@ def compute_features(monthly_df):
     monthly_df["momentum_6"]    = monthly_df.groupby("SP Identifier")["Monthly Total Return"].transform(lambda x: x.rolling(6).apply(lambda y: (1 + y).prod() - 1, raw=True))
     monthly_df["momentum_3"]    = monthly_df.groupby("SP Identifier")["Monthly Total Return"].transform(lambda x: x.rolling(3).apply(lambda y: (1 + y).prod() - 1, raw=True))
     monthly_df["rev_1m"]        = -monthly_df.groupby("SP Identifier")["Monthly Total Return"].shift(1)
-    
     # Risk
     # equal-weight market proxy by month, aligned to each row
     mkt = monthly_df.groupby("month")["Monthly Total Return"].transform("mean")
