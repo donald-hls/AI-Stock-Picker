@@ -23,7 +23,7 @@ def clean_data(csv_file):
     removing/filling in the missing values and converting the data to the 
     correct format for the model. 
     The function returns a pandas dataframe with selected columns. 
-
+    
     The data is obtained from Wharton Research Data Services. 
     clean_data(csv_file): CSV_File -> DataFrame
 
@@ -104,17 +104,12 @@ def clean_data(csv_file):
     # Current Ratio: Current Assets / Current Liabilities
     merged["Current Ratio"] = ratio_calculation(merged["Current Assets"], merged["Current Liabilities"])
 
-    # Print a short summary: 
-    print(f"Monthly dataset created: {len(merged):,} observations")
-    # Print the date range
-    print(f"Date range: {merged['month'].min()} to {merged['month'].max()}")
-    # Print the number of companies
-    print(f"Number of companies: {merged['SP Identifier'].nunique():,}")
-    # save the dataframe to an excel file to check data integrity
-    # merged.to_excel("monthly_data.xlsx", index = False)
     return merged
 
 monthly_data = clean_data("data.csv")
+
+
+
 
 def build_fy_window(fundamentals_df):
     """
@@ -135,7 +130,7 @@ def build_fy_window(fundamentals_df):
     fundamentals_df['avail_to'] = fundamentals_df['avail_to'].fillna(pd.Timestamp("2200-12-31"))
     return fundamentals_df
 
-def get_macro_data():
+def get_macro_data(start_date="1900-01-01", end_date="2025-10-01"):
     """
     get_macro_data retrieves macroeconomic data from the Federal Reserve Bank of St. Louis (FRED) API.
     The function returns a pandas dataframe with the macroeconomic data such as VIX, Unemployment Rate, etc.
@@ -146,22 +141,22 @@ def get_macro_data():
     """
     try:
         # VIX: Volatility Index
-        VIX = pdr.get_data_fred("VIXCLS", start="2010-01-01")
+        VIX = pdr.get_data_fred("VIXCLS", start=start_date, end=end_date)
         # 10Y Yield (Monthly)
-        Yield10 = pdr.get_data_fred("DGS10", start="2010-01-01")
+        Yield10 = pdr.get_data_fred("DGS10", start=start_date, end=end_date)
         # 3m Treasury Yield (Monthly)
-        Yield3M = pdr.get_data_fred("TB3MS", start="2010-01-01")
+        Yield3M = pdr.get_data_fred("TB3MS", start=start_date, end=end_date)
         # Employment Rate (Monthly)
-        unemploy = pdr.get_data_fred("UNRATE", start="2010-01-01") 
+        unemploy = pdr.get_data_fred("UNRATE", start=start_date, end=end_date)
         # Corporate Bond Spread - ICE BofA US Corporate Index Option-Adjusted Spread
         # This is the spread over Treasury yields for investment grade corporate bonds
         try:
-            IG_OAS = pdr.get_data_fred("BAMLC0A0CM", start="2010-01-01")
+            IG_OAS = pdr.get_data_fred("BAMLC0A0CM", start=start_date, end=end_date)
             oas_data = IG_OAS['BAMLC0A0CM']
         except:
             # Fallback to Moody's Corporate Bond Yield
             print("Warning: BAMLC0A0CM not available, using Moody's Corporate Bond Yield as alternative")
-            corp_yield = pdr.get_data_fred("BAA", start="2010-01-01")
+            corp_yield = pdr.get_data_fred("BAA", start=start_date, end=end_date)
             oas_data = corp_yield['BAA'] - Yield10['DGS10']  # Corporate spread over 10Y Treasury
         monthly_data = pd.DataFrame(
             {
@@ -186,7 +181,8 @@ def get_macro_data():
         print("Returning empty DataFrame with expected columns")
         return pd.DataFrame(columns=['Month', 'VIX', 'Yield10', 'Yield3M', 'unemploy', 'IG_OAS', '3Mon-10Y', 'Δ in Unemploy'])
 
-macro_data = get_macro_data()
+macro_data = get_macro_data(start_date=str(monthly_data['month'].min().date()),
+                            end_date=str(monthly_data['month'].max().date()))
 
 
 def add_macro_features(mon_data, macro_data, lag_month = 1):
@@ -208,12 +204,12 @@ def add_macro_features(mon_data, macro_data, lag_month = 1):
     
 retval = add_macro_features(monthly_data, macro_data)
 
-print("------------------------------------------------")
-print(f"Final dataset shape: {retval.shape}")
-print(f"New columns added: {[col for col in retval.columns if col not in monthly_data.columns]}")
-print("Sample of merged data:")
-print(retval.head())
-print("------------------------------------------------")
+# print("------------------------------------------------")
+# print(f"Final dataset shape: {retval.shape}")
+# print(f"New columns added: {[col for col in retval.columns if col not in monthly_data.columns]}")
+# print("Sample of merged data:")
+# print(retval.head())
+# print("------------------------------------------------")
 
 def compute_features(monthly_df):
     """
@@ -286,7 +282,7 @@ def cross_sectional_windsorize(monthly_df, feature_cols):
     return retval 
     
 windsorized_data = cross_sectional_windsorize(computed_data, feature_cols)
-print(windsorized_data.head())
+windsorized_data.to_csv("windsorized_data.csv", index = False)
 
 # split the data into training, validation, and test sets.
 def split_data(df, train_end = TRAIN_END_DATE, valid_end = VALID_END_DATE):
@@ -298,20 +294,36 @@ def split_data(df, train_end = TRAIN_END_DATE, valid_end = VALID_END_DATE):
     valid_data = (df["month"] > pd.to_datetime(train_end)) & (df["month"] <= pd.to_datetime(valid_end))
     test_data = df["month"] > pd.to_datetime(valid_end)
     
-    # Print summary
-    print("=== TIME SPLIT SUMMARY ===")
-    print(f"Training: {df[train_data]['month'].min().strftime('%Y-%m')} to {df[train_data]['month'].max().strftime('%Y-%m')} ({train_data.sum():,} obs)")
-    print(f"Validation: {df[valid_data]['month'].min().strftime('%Y-%m')} to {df[valid_data]['month'].max().strftime('%Y-%m')} ({valid_data.sum():,} obs)")
-    print(f"Test: {df[test_data]['month'].min().strftime('%Y-%m')} to {df[test_data]['month'].max().strftime('%Y-%m')} ({test_data.sum():,} obs)")
-    
     return train_data, valid_data, test_data 
 
 train_data, valid_data, test_data = split_data(windsorized_data)
 
-print(train_data.sum())
-print(valid_data.sum())
-print(test_data.sum())
+# print(train_data.sum())
+# print(valid_data.sum())
+# print(test_data.sum())
 
-print(windsorized_data[train_data].head())
-print(windsorized_data[valid_data].head())
-print(windsorized_data[test_data].head())
+# print(windsorized_data[train_data].head())
+# print(windsorized_data[valid_data].head())
+# print(windsorized_data[test_data].head())
+
+if __name__ == "__main__":
+    # Print a short summary: 
+    print(f"Monthly dataset created: {len(monthly_data):,} observations")
+    # Print the date range
+    print(f"Date range: {monthly_data['month'].min()} to {monthly_data['month'].max()}")
+    # Print the number of companies
+    print(f"Number of companies: {monthly_data['SP Identifier'].nunique():,}")
+    # save the dataframe to an excel file to check data integrity
+    # monthly_data.to_excel("monthly_data.xlsx", index = False)
+    # Print summary
+    print("=== TIME SPLIT SUMMARY ===")
+    print(f"Training: {windsorized_data[train_data]['month'].min().strftime('%Y-%m')} to {windsorized_data[train_data]['month'].max().strftime('%Y-%m')} ({train_data.sum():,} obs)")
+    print(f"Validation: {windsorized_data[valid_data]['month'].min().strftime('%Y-%m')} to {windsorized_data[valid_data]['month'].max().strftime('%Y-%m')} ({valid_data.sum():,} obs)")
+    print(f"Test: {windsorized_data[test_data]['month'].min().strftime('%Y-%m')} to {windsorized_data[test_data]['month'].max().strftime('%Y-%m')} ({test_data.sum():,} obs)")
+    
+    # Additional dataset coverage info
+    print("=== DATA RANGES ===")
+    print(f"Prices/Fundamentals (monthly_data): {monthly_data['month'].min().date()} → {monthly_data['month'].max().date()} ({len(monthly_data):,} rows)")
+    print(f"Macro (macro_data): {macro_data['Month'].min().date()} → {macro_data['Month'].max().date()} ({len(macro_data):,} rows)")
+    print(f"Windsorized (windsorized_data): {windsorized_data['month'].min().date()} → {windsorized_data['month'].max().date()} ({len(windsorized_data):,} rows)")
+    
