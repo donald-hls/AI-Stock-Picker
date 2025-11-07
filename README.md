@@ -7,7 +7,15 @@
 
 ## Modeling & Ensembling
 
-- Fama-French Three Factor Model (Regression)
+- Fama-French Three Factor Model (Market Risk (Market Risk Premium), Size (SMB), Value (HML))
+    - Used standard 50-50 split for Market Equity (size)
+    - Used standard 30-70 split for Book to Equity (value)
+
+- Fama Macbeth Regression: (Procedure to test if a beta earns a persistent premium)
+    - Calcualte the Betas (factor exposures) for each asset with time-series regression
+    - Run Cross-sectional Regressions for each month, regress (next_month_excessive_returns) on their betas
+    - Collect the lambdas (risk premia) from each time t 
+    - Averaging all the lambdas over all periods to estimate the mean risk premium for each factor 
 
 - XgBoost (Tree Models)
 
