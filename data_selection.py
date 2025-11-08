@@ -106,9 +106,7 @@ def clean_data(csv_file):
 
     return merged
 
-monthly_data = clean_data("data.csv")
-
-
+monthly_data = clean_data("new_data.csv")
 
 
 def build_fy_window(fundamentals_df):
@@ -199,7 +197,8 @@ def add_macro_features(mon_data, macro_data, lag_month = 1):
     for col in [col for col in macro_data_copy.columns if col != "Month"]:
         # applying a time shift 
         macro_data_copy[col] = macro_data_copy[col].shift(lag_month)
-    return mon_data.merge(macro_data_copy, left_on='month', right_on='Month', how = 'left')
+    macro_data_copy = macro_data_copy.rename(columns={"Month": "month"})
+    return mon_data.merge(macro_data_copy, on="month", how="left")
     
     
 retval = add_macro_features(monthly_data, macro_data)
@@ -242,9 +241,9 @@ def compute_features(monthly_df):
     # Momentum - calculate cumulative returns over different periods
     # Use transform to avoid index issues
     monthly_df["momentum_12_1"] = monthly_df.groupby("SP Identifier")["Monthly Total Return"].transform(lambda x: x.rolling(12).apply(lambda y: (1 + y).prod() - 1, raw=True))
-    monthly_df["momentum_6"]    = monthly_df.groupby("SP Identifier")["Monthly Total Return"].transform(lambda x: x.rolling(6).apply(lambda y: (1 + y).prod() - 1, raw=True))
-    monthly_df["momentum_3"]    = monthly_df.groupby("SP Identifier")["Monthly Total Return"].transform(lambda x: x.rolling(3).apply(lambda y: (1 + y).prod() - 1, raw=True))
-    monthly_df["rev_1m"]        = -monthly_df.groupby("SP Identifier")["Monthly Total Return"].shift(1)
+    monthly_df["momentum_6"] = monthly_df.groupby("SP Identifier")["Monthly Total Return"].transform(lambda x: x.rolling(6).apply(lambda y: (1 + y).prod() - 1, raw=True))
+    monthly_df["momentum_3"] = monthly_df.groupby("SP Identifier")["Monthly Total Return"].transform(lambda x: x.rolling(3).apply(lambda y: (1 + y).prod() - 1, raw=True))
+    monthly_df["rev_1m"] = -monthly_df.groupby("SP Identifier")["Monthly Total Return"].shift(1)
     # Risk
     # equal-weight market proxy by month, aligned to each row
     mkt = monthly_df.groupby("month")["Monthly Total Return"].transform("mean")
