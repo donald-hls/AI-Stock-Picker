@@ -13,8 +13,6 @@ from config import (
     FAR_FUTURE_DATE,
     MILLION_TO_DOLLARS,
     THOUSAND_TO_ACTUAL,
-    TRAIN_END_DATE,
-    VALID_END_DATE
 )
 
 def clean_data(csv_file):
