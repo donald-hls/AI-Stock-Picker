@@ -32,7 +32,6 @@ def clean_data(csv_file):
     # Select the columns based on the mapping and makes a copy
     df = df[[val for val in COLUMN_NAME_MAPPING.values()]].copy()
     # Convert to Datetime objects 
-    print(df.head())
     df["Monthly Calendar Date"] = pd.to_datetime(df["Monthly Calendar Date"], errors="coerce")
     # STANDARDIZE ALL FINANCIAL VALUES TO DOLLARS (not millions)
     # Convert all financial statement data from millions to actual dollars
@@ -135,21 +134,10 @@ def add_macro_features(ann_data, macro_data, lag_periods = 1):
     
 retval = add_macro_features(annual_data, macro_data)
 
-print(retval.head())
-
-print("------------------------------------------------")
-print(f"Final dataset shape: {retval.shape}")
-print("------------------------------------------------")
-print(retval.head())
-print("------------------------------------------------")
-print(retval.tail())
-print("------------------------------------------------")
-
-
 def rolling_total_return(series: pd.Series, window: int, min_periods: int) -> pd.Series:
     """
     rolling_total_return calculates the rolling total return for a given series.
-    The function returns a Series with the rolling total return.
+    The function returns a Series with the rolling total return
     """
     return series.rolling(window = window, min_periods = min_periods).apply(
         lambda arr: np.prod(1.0 + arr) - 1.0, raw=True)
@@ -208,66 +196,38 @@ def compute_features(monthly_df):
 computed_data, feature_cols = compute_features(retval)
 
 
-
-# def cross_sectional_windsorize(monthly_df, feature_cols):
-#     """
-#     cross_sectional_windsorize windsorizes the data across all companies in a given month.
-#     the function calls the helper function limiting_extreme_values to windsorize the data in Series. 
+def cross_sectional_windsorize(monthly_df, feature_cols):
+    """
+    cross_sectional_windsorize windsorizes the data across all companies in a given month.
+    the function calls the helper function limiting_extreme_values to windsorize the data in Series. 
     
-#     cross_sectional_windsorize(monthly_df, feature_cols): DataFrame, list -> DataFrame
-#     """
-#     retval = monthly_df.copy()
-#     # partitions rows by fiscal period  
-#     for period, idx in retval.groupby("period_end").groups.items():
-#         block = retval.loc[idx, feature_cols]
-#         blockWindsorized = block.apply(limiting_extreme_values, axis = 0)
-#         # normalize the data
-#         retval.loc[idx, feature_cols] = (blockWindsorized - blockWindsorized.mean()) / blockWindsorized.std()
-#     return retval 
+    cross_sectional_windsorize(monthly_df, feature_cols): DataFrame, list -> DataFrame
+    """
+    retval = monthly_df.copy()
+    # partitions rows by fiscal period  
+    for period, idx in retval.groupby("period_end").groups.items():
+        block = retval.loc[idx, feature_cols]
+        blockWindsorized = block.apply(limiting_extreme_values, axis = 0)
+        # normalize the data
+        retval.loc[idx, feature_cols] = (blockWindsorized - blockWindsorized.mean()) / blockWindsorized.std()
+    return retval 
     
-# windsorized_data = cross_sectional_windsorize(computed_data, feature_cols)
-# windsorized_data.to_csv("windsorized_data.csv", index = False)
+windsorized_data = cross_sectional_windsorize(computed_data, feature_cols)
+windsorized_data.to_csv("windsorized_data.csv", index = False)
 
-# # split the data into training, validation, and test sets.
-# def split_data(df, train_end = TRAIN_END_DATE, valid_end = VALID_END_DATE):
-#     """
-#     split_data splits the data into training, validation, and test sets.
-#     split_data(df, train_end, valid_end): DataFrame, str, str -> Series, Series, Series
-#     """
-#     train_data = df["period_end"] <= pd.to_datetime(train_end)
-#     valid_data = (df["period_end"] > pd.to_datetime(train_end)) & (df["period_end"] <= pd.to_datetime(valid_end))
-#     test_data = df["period_end"] > pd.to_datetime(valid_end)
+if __name__ == "__main__":
+    # Print a short summary: 
+    print(f"Annual dataset created: {len(annual_data):,} observations")
+    # Print the date range
+    print(f"Date range: {annual_data['period_end'].min()} to {annual_data['period_end'].max()}")
+    # Print the number of companies
+    print(f"Number of companies: {annual_data['SP Identifier'].nunique():,}")
+    # save the dataframe to an excel file to check data integrity
+    # monthly_data.to_excel("monthly_data.xlsx", index = False)
     
-#     return train_data, valid_data, test_data 
-
-# train_data, valid_data, test_data = split_data(windsorized_data)
-
-# # print(train_data.sum())
-# # print(valid_data.sum())
-# # print(test_data.sum())
-
-# # print(windsorized_data[train_data].head())
-# # print(windsorized_data[valid_data].head())
-# # print(windsorized_data[test_data].head())
-
-# if __name__ == "__main__":
-#     # Print a short summary: 
-#     print(f"Annual dataset created: {len(annual_data):,} observations")
-#     # Print the date range
-#     print(f"Date range: {annual_data['period_end'].min()} to {annual_data['period_end'].max()}")
-#     # Print the number of companies
-#     print(f"Number of companies: {annual_data['SP Identifier'].nunique():,}")
-#     # save the dataframe to an excel file to check data integrity
-#     # monthly_data.to_excel("monthly_data.xlsx", index = False)
-#     # Print summary
-#     print("=== TIME SPLIT SUMMARY ===")
-#     print(f"Training: {windsorized_data[train_data]['period_end'].min().strftime('%Y-%m')} to {windsorized_data[train_data]['period_end'].max().strftime('%Y-%m')} ({train_data.sum():,} obs)")
-#     print(f"Validation: {windsorized_data[valid_data]['period_end'].min().strftime('%Y-%m')} to {windsorized_data[valid_data]['period_end'].max().strftime('%Y-%m')} ({valid_data.sum():,} obs)")
-#     print(f"Test: {windsorized_data[test_data]['period_end'].min().strftime('%Y-%m')} to {windsorized_data[test_data]['period_end'].max().strftime('%Y-%m')} ({test_data.sum():,} obs)")
-    
-#     # Additional dataset coverage info
-#     print("=== DATA RANGES ===")
-#     print(f"Prices/Fundamentals (annual_data): {annual_data['period_end'].min().date()} → {annual_data['period_end'].max().date()} ({len(annual_data):,} rows)")
-#     print(f"Macro (macro_data): {macro_data['period_end'].min().date()} → {macro_data['period_end'].max().date()} ({len(macro_data):,} rows)")
-#     print(f"Windsorized (windsorized_data): {windsorized_data['period_end'].min().date()} → {windsorized_data['period_end'].max().date()} ({len(windsorized_data):,} rows)")
+    # Additional dataset coverage info
+    print("=== DATA RANGES ===")
+    print(f"Prices/Fundamentals (annual_data): {annual_data['period_end'].min().date()} → {annual_data['period_end'].max().date()} ({len(annual_data):,} rows)")
+    print(f"Macro (macro_data): {macro_data['period_end'].min().date()} → {macro_data['period_end'].max().date()} ({len(macro_data):,} rows)")
+    print(f"Windsorized (windsorized_data): {windsorized_data['period_end'].min().date()} → {windsorized_data['period_end'].max().date()} ({len(windsorized_data):,} rows)")
     
