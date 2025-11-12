@@ -2,6 +2,7 @@
 
 ##  Data Processing
 - Obtained historical data from Wharton Research Data Services
+- Used Historic Data obtained from 2001 to 2024 
 
 - Collected and computed fundamental metrics / Macro data from Federal Reserve Economic Data
 
