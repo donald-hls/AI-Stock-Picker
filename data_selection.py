@@ -91,59 +91,62 @@ annual_data = clean_data("new_data.csv")
 
 
 
-# def get_macro_data(start_date="1900-01-01", end_date="2025-10-01"):
-#     """
-#     get_macro_data retrieves macroeconomic data from the Federal Reserve Bank of St. Louis (FRED) API.
-#     The function returns a pandas dataframe with the macroeconomic data such as VIX, Unemployment Rate, etc.
-#     - Look at 3M-10Y Yield Spread - recession/slowdown indicator
-#     - Look at Monthly Unemployment Rate
-#     - Look at the VIX Monthly Index
-#     - Look at Corporate Bond Spread (alternative to IG OAS)
-#     """
-#     try:
-#         # VIX: Volatility Index
-#         VIX = pdr.get_data_fred("VIXCLS", start=start_date, end=end_date)
-#         # 10Y Yield (Monthly)
-#         Yield10 = pdr.get_data_fred("DGS10", start=start_date, end=end_date)
-#         # 3m Treasury Yield (Monthly)
-#         Yield3M = pdr.get_data_fred("TB3MS", start=start_date, end=end_date)
-#         # Employment Rate (Monthly)
-#         unemploy = pdr.get_data_fred("UNRATE", start=start_date, end=end_date)
-#         # Corporate Bond Spread - ICE BofA US Corporate Index Option-Adjusted Spread
-#         # This is the spread over Treasury yields for investment grade corporate bonds
-#         try:
-#             IG_OAS = pdr.get_data_fred("BAMLC0A0CM", start=start_date, end=end_date)
-#             oas_data = IG_OAS['BAMLC0A0CM']
-#         except:
-#             # Fallback to Moody's Corporate Bond Yield
-#             print("Warning: BAMLC0A0CM not available, using Moody's Corporate Bond Yield as alternative")
-#             corp_yield = pdr.get_data_fred("BAA", start=start_date, end=end_date)
-#             oas_data = corp_yield['BAA'] - Yield10['DGS10']  # Corporate spread over 10Y Treasury
-#         monthly_data = pd.DataFrame(
-#             {
-#                 # resample to Monthly and take the last value
-#                 "VIX": VIX['VIXCLS'].resample('ME').last(),
-#                 "Yield10": Yield10['DGS10'].resample('ME').last(),
-#                 "Yield3M": Yield3M['TB3MS'].resample('ME').last(),
-#                 "unemploy": unemploy['UNRATE'].resample('ME').last(),
-#                 "IG_OAS": oas_data.resample('ME').last()
-#             }
-#         ).dropna(how = "all")
+def get_macro_data(start_date="1900-01-01", end_date="2025-10-01"):
+    """
+    get_macro_data retrieves macroeconomic data from the Federal Reserve Bank of St. Louis (FRED) API.
+    The function returns a pandas dataframe with the macroeconomic data such as VIX, Unemployment Rate, etc.
+    - Look at 3M-10Y Yield Spread - recession/slowdown indicator
+    - Look at Monthly Unemployment Rate
+    - Look at the VIX Monthly Index
+    - Look at Corporate Bond Spread (alternative to IG OAS)
+    """
+    try:
+        # VIX
+        VIX = pdr.get_data_fred("VIXCLS", start=start_date, end=end_date)
+        # 10Y Yield (Monthly)
+        Yield10 = pdr.get_data_fred("DGS10", start=start_date, end=end_date)
+        # 3m Treasury Yield (Monthly)
+        Yield3M = pdr.get_data_fred("TB3MS", start=start_date, end=end_date)
+        # Employment Rate (Monthly)
+        unemploy = pdr.get_data_fred("UNRATE", start=start_date, end=end_date)
+        # Corporate Bond Spread - ICE BofA US Corporate Index Option-Adjusted Spread
+        # This is the spread over Treasury yields for investment grade corporate bonds
+        try:
+            # ICE BofA US Corporate Index Option-Adjusted Spread
+            # calculated spreads between a computed OAS index of all bonds in a given rating category and a spot Treasury curve.
+            IG_OAS = pdr.get_data_fred("BAMLC0A0CM", start=start_date, end=end_date)
+            oas_data = IG_OAS['BAMLC0A0CM']
+        except:
+            # Fallback to Moody's Corporate Bond Yield
+            print(" Use Moody's Corporate Bond Yield as alternative")
+            corp_yield = pdr.get_data_fred("BAA", start=start_date, end=end_date)
+            # Corporate spread over 10Y Treasury
+            oas_data = corp_yield['BAA'] - Yield10['DGS10']
+        monthly_data = pd.DataFrame(
+            {
+                "VIX": VIX['VIXCLS'].resample('ME').last(),
+                "Yield10": Yield10['DGS10'].resample('ME').last(),
+                "Yield3M": Yield3M['TB3MS'].resample('ME').last(),
+                "unemploy": unemploy['UNRATE'].resample('ME').last(),
+                "IG_OAS": oas_data.resample('ME').last()
+            }
+        ).dropna(how = "all")
+        # Reset index to get month as a column
+        monthly_data = monthly_data.reset_index()
+        monthly_data.rename(columns={'DATE': 'period_end'}, inplace=True)
+        # some calculations:
+        monthly_data["3Mon-10Y"] = monthly_data["Yield10"] - monthly_data["Yield3M"]
+        monthly_data["Δ in Unemploy"] = monthly_data["unemploy"].diff()
         
-#         # Reset index to get month as a column
-#         monthly_data = monthly_data.reset_index()
-#         monthly_data.rename(columns={'DATE': 'period_end'}, inplace=True)
-#         # some calculations:
-#         monthly_data["3Mon-10Y"] = monthly_data["Yield10"] - monthly_data["Yield3M"]
-#         monthly_data["Δ in Unemploy"] = monthly_data["unemploy"].diff()
-#         return monthly_data
-#     except Exception as e:
-#         print(f"Error fetching macro data: {e}")
-#         print("Returning empty DataFrame with expected columns")
-#         return pd.DataFrame(columns=['Month', 'VIX', 'Yield10', 'Yield3M', 'unemploy', 'IG_OAS', '3Mon-10Y', 'Δ in Unemploy'])
+        return monthly_data
+    
+    except Exception as e:
+        print(f"Error fetching macro data:")
+        print("Returning empty DataFrame with expected columns")
+        return pd.DataFrame(columns=['Month', 'VIX', 'Yield10', 'Yield3M', 'unemploy', 'IG_OAS', '3Mon-10Y', 'Δ in Unemploy'])
+        
+macro_data = get_macro_data(start_date= "2001-04-30", end_date= "2024-12-31")
 
-# macro_data = get_macro_data(start_date=str(annual_data['period_end'].min().date()),
-#                             end_date=str(annual_data['period_end'].max().date()))
 
 
 # def add_macro_features(ann_data, macro_data, lag_periods = 1):
