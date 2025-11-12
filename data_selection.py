@@ -3,7 +3,7 @@ import numpy as np
 # MonthEnd to target the end of a Month.
 from pandas.tseries.offsets import MonthEnd
 from pandas_datareader import data as pdr
-from utility import ratio_calculation, limiting_extreme_values
+from utility import ratio_calculation, limiting_extreme_values, rolling_total_return
 from config import (
     COLUMN_NAME_MAPPING,
     FINANCIAL_VARS_IN_MILLIONS,
@@ -134,14 +134,6 @@ def add_macro_features(ann_data, macro_data, lag_periods = 1):
     
 retval = add_macro_features(annual_data, macro_data)
 
-def rolling_total_return(series: pd.Series, window: int, min_periods: int) -> pd.Series:
-    """
-    rolling_total_return calculates the rolling total return for a given series.
-    The function returns a Series with the rolling total return
-    """
-    return series.rolling(window = window, min_periods = min_periods).apply(
-        lambda arr: np.prod(1.0 + arr) - 1.0, raw=True)
-
 def compute_features(monthly_df):
     """
     Compute some new features for the monthly data, and puts a lag on the 
@@ -230,4 +222,3 @@ if __name__ == "__main__":
     print(f"Prices/Fundamentals (annual_data): {annual_data['period_end'].min().date()} → {annual_data['period_end'].max().date()} ({len(annual_data):,} rows)")
     print(f"Macro (macro_data): {macro_data['period_end'].min().date()} → {macro_data['period_end'].max().date()} ({len(macro_data):,} rows)")
     print(f"Windsorized (windsorized_data): {windsorized_data['period_end'].min().date()} → {windsorized_data['period_end'].max().date()} ({len(windsorized_data):,} rows)")
-    

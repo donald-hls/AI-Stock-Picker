@@ -29,3 +29,10 @@ def limiting_extreme_values(s, p=0.01):
     # Assigns values outside boundary to boundary values. (to trim inputs)
     return s.clip(lower_quantile, upper_quantile)
     
+def rolling_total_return(series, window, min_periods):
+    """
+    rolling_total_return calculates the rolling total return for a given series.
+    The function returns a Series with the rolling total return
+    """
+    return series.rolling(window = window, min_periods = min_periods).apply(
+        lambda arr: np.prod(1.0 + arr) - 1.0, raw=True)
