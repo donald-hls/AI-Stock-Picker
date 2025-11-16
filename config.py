@@ -83,7 +83,7 @@ FUNDAMENTAL_COLS = [
 PRICE_COLS = [
     "SP Identifier", 
     "PERMNO", 
-    "month", 
+    "period_end", 
     "Monthly Price", 
     "Monthly Total Return",
     "Monthly Total Return Excluding Dividends", 
@@ -105,8 +105,8 @@ START_DATE = "2010-01-01"  # Start date for macro data collection
 FAR_FUTURE_DATE = "2200-12-31"  # Placeholder for "no expiration"
 
 # Unit conversion factors
-MILLION_TO_DOLLARS = 1_000_000
-THOUSAND_TO_ACTUAL = 1_000  # For CRSP shares outstanding
+MILLION_TO_DOLLARS = 1000000
+THOUSAND_TO_ACTUAL = 1000  # For CRSP shares outstanding
 
 # Time split Dates
 TRAIN_END_DATE = "2018-12-31"
