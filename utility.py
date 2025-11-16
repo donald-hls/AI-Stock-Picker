@@ -33,6 +33,20 @@ def rolling_total_return(series, window, min_periods):
     """
     rolling_total_return calculates the rolling total return for a given series.
     The function returns a Series with the rolling total return
+    rolling_total_return(series, window, min_periods): Series, int, int -> Series
+    e.g: (1+r_1) * (1+r_2) * ... * (1+r_n) - 1
     """
-    return series.rolling(window = window, min_periods = min_periods).apply(
-        lambda arr: np.prod(1.0 + arr) - 1.0, raw=True)
+    return series.rolling(window, min_periods).apply(
+        lambda array: np.prod(1.0 + array) - 1.0, raw=True)
+    
+def zscore(group):
+    """
+    zscore standardises each cross-sectional slice (mean 0, std 1).
+    The function returns a DataFrame with the z-scored data and a Series with the columns to keep.
+    """
+    x = group.replace([np.inf, -np.inf], np.nan)
+    std = x.std(ddof=0)
+    keep = std.gt(1e-8)
+    x = x.loc[:, keep]
+    z = (x - x.mean()) / std[keep]
+    return z.fillna(0.0), keep
