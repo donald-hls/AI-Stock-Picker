@@ -56,7 +56,10 @@ def clean_data(csv_file):
     merged = merged[mask].copy()
     merged["Monthly Market Cap"] = merged["Monthly Price"].abs() * merged["Shares Outstanding (CRSP)"] * THOUSAND_TO_ACTUAL
     merged = merged.sort_values(["SP Identifier", "period_end"])
-    merged["ret_12m"] = merged.groupby("SP Identifier")["Monthly Price"].pct_change(1)
+    # Grouped by SP Identifier, calculate the 1 month return
+    merged["ret_1m"] = merged.groupby("SP Identifier")["Monthly Price"].pct_change(1)
+    # Compute the 12 month return based on the 1 month return
+    merged["ret_12m"] = merged.groupby("SP Identifier")["ret_1m"].transform(lambda s: rolling_total_return(s, 12, 12))
     # Some ratio calculations:
     # Price to Earnings Ratio: Market Cap / Net Income
     merged["P/E"] = ratio_calculation(merged["Monthly Market Cap"], merged["Net Income"])
@@ -162,14 +165,13 @@ def compute_features(monthly_df):
     monthly_df["EPS_YoY"] = monthly_df.groupby("SP Identifier")["EPS_ff"].pct_change(1, fill_method=None)
 
     # Momentum / reversal and risk features derived from annual returns
-    ret_12m_grouped = monthly_df.groupby("SP Identifier")["ret_12m"]
-    # Buils annual momentum and volatility
+    ret_1m_grouped = monthly_df.groupby("SP Identifier")["ret_1m"]
     monthly_df["return_1y"] = monthly_df["ret_12m"]
-    monthly_df["rev_1y"] = -monthly_df["ret_12m"]
-    monthly_df["momentum_2y"] = ret_12m_grouped.transform(lambda s: rolling_total_return(s, window=2, min_periods=2))
-    monthly_df["momentum_3y"] = ret_12m_grouped.transform(lambda s: rolling_total_return(s, window=3, min_periods=2))
-    monthly_df["vol_3y"] = ret_12m_grouped.transform(lambda s: s.rolling(window=3, min_periods=2).std())
-    monthly_df["vol_5y"] = ret_12m_grouped.transform(lambda s: s.rolling(window=5, min_periods=3).std())
+    monthly_df["rev_1y"] = -monthly_df["return_1y"]
+    monthly_df["momentum_2y"] = ret_1m_grouped.transform(lambda s: rolling_total_return(s, 24, 24))
+    monthly_df["momentum_3y"] = ret_1m_grouped.transform(lambda s: rolling_total_return(s, 36, 36))
+    monthly_df["vol_3y"] = ret_1m_grouped.transform(lambda s: s.rolling(36, 24).std())
+    monthly_df["vol_5y"] = ret_1m_grouped.transform(lambda s: s.rolling(60, 36).std())
     # put lag on the newly added features. 
     accounting_cols = ["PE","PB","PS","OperatingMargin","EbitdaMargin","DebtToEquity","DebtToAssets","IntCoverage","CurrentRatio"]
     calculated_cols = ["Sales_YoY","EPS_YoY","return_1y","rev_1y","momentum_2y","momentum_3y","vol_3y","vol_5y"]
