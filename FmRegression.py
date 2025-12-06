@@ -1,73 +1,63 @@
 import pandas as pd
-import numpy as np 
+import numpy as np
 import statsmodels.api as sm
-# HAC provides robust SEs when errors are heteroskedastic and autocorrelated.
-# in FM, SE assumes I.I.D Errors, but lambda_k,t typically has non-constant variance. HAC corrects for that.
+from utility import zscore, rolling_total_return
 from statsmodels.stats.sandwich_covariance import cov_hac
-# Fama-Macbeth Regression. 
-"""
-* Skip the Time-Series regression step, because we are not estimating risk exposures. 
-Procedure: 
-    1. Run a cross-sectional regression at each time period to find the risk premium
-    2. Average the risk premia (lambda_hat)
-        The average of these time-series risk premia provides the final estimate
-        for the risk premium associated with the factor. 
-    3. Estimate the Standard Errors.
-Purpose: 
-    narrow down the features list -> "a filter before feeding to XGBoost" 
-"""
 
-# Helper: returns the standardized (z-score) version of the features
-def zscore(group):
-    """
-    Takes in one month's cross-section of features, returns teh standardized version. 
-    keep: a mask that indicates which features have sufficient variation.
-    """
-    x = group.replace([np.inf, -np.inf], np.nan) # replace inf values with NaN
-    std = x.std(ddof = 0) # calculate population std (treat cross section as a population)
-    keep = std.gt(1e-8)
-    x = x.loc[:, keep]
-    z = (x - x.mean()) / std[keep] # normalization
-    return z.fillna(0), keep 
+# To take away the outliers -> 98%
+TARGET_CLIP_BOUNDS = (-2.0, 2.0)
 
-# - Step 1 in FM-Regression
-def add_factor_betas(df, factor_cols=("Mkt_RF", "SMB", "HML"), window=36, min_periods=24, id_col="SP Identifier", time_col="month", target_col="excess_ret"):
+# Step 1: rolling betas (time-series regressions per firm)
+def add_factor_betas(df):
     """
-    Estimate time-series regressions of the firm's excess returns on factor returns using trailing window (avoid look-ahead bias)
-    The calculated betas are firm-level exposures at time t (using info until t-1)
-    rolling factor betas for each firm using trailing window OLS. 
+    add_factor_betas estimates trailing OLS betas using annual information up to t-1 (no look-ahead).
+    The function returns a DataFrame with the factor betas.
     """
-
-    df = df.sort_values([id_col, time_col]).copy()
-    # prepares output col_names like beta_mkt_rf, beta_smb, beta_hml
+    # Systematic Risk Factors 
+    factor_cols=("Mkt_RF_ann", "SMB_ann", "HML_ann")
+    windows = 5
+    min_periods = 3
+    # id_col = "SP Identifier"
+    # time_col = "period_end"
+    target_col = "excess_ret"
+    df = df.sort_values(["SP Identifier", "period_end"]).copy()
+    # Create the beta columsn - "renaming the factor columns"
     beta_cols = [f"beta_{col.lower().replace('-', '_')}" for col in factor_cols]
-    # creates a empty df to hold the betas
-    betas = pd.DataFrame(index=df.index, columns=beta_cols, dtype=float)
-
-    for firm_id, firm_panel in df.groupby(id_col):
-        firm_panel = firm_panel.sort_values(time_col)
-        firm_index = firm_panel.index.to_list()
-        # looping over months within a firm
+    betas = pd.DataFrame(index = df.index, columns=beta_cols)
+    for firm_id, firm_panel in df.groupby("SP Identifier"):
+        # Time Series of observations 
+        firm_panel = firm_panel.sort_values("period_end") # all rows for a given firm sorted by period_end
+        # list of row indices
+        firm_index = firm_panel.index.to_list() # list of DataFrame index values 
+        
         for pos, idx in enumerate(firm_index):
             end = pos
+            # no past observations available
             if end == 0:
                 continue
-            start = max(0, end - window)
-            window_idx = firm_index[start:end]
-            # extract excess return and the factor columns 
+            # start index of the window
+            start = max(0, end - windows)
+            # list of row indices for the window
+            window_idx = firm_index[start:end] # get the last 5 
+            # DataFrame of the window: 
+                # excess returns(target_col) and factors (factor_cols)
             window_frame = firm_panel.loc[window_idx, [target_col, *factor_cols]].dropna()
             if window_frame.shape[0] < min_periods:
                 continue
-            # vector of the firm's excess returns over the window
+            # Run OLS Regression 
+            # vector of excess returns 
             y_window = window_frame[target_col].astype(float).to_numpy()
-            # matrix of factor realizations for the months
+            # matrix of factor returns 
             X_window = window_frame[list(factor_cols)].astype(float).to_numpy()
-            # creating the intercept (col of 1s)
+            # design matrix: add a column of ones for the intercept
             X_design = np.column_stack([np.ones(len(y_window)), X_window])
-            # beta_vector[0] is teh intercept. 
+            # returns the least-squares solution
+            # beta_vector[0] = intercept
+            # beta_vector[1] = beta on Market Risk Factor
+            # beta_vector[2] = beta on SMB
+            # beta_vector[3] = beta on HML
             beta_vector, *_ = np.linalg.lstsq(X_design, y_window, rcond=None)
-
-            for j, factor in enumerate(factor_cols, start = 1):
+            for j, factor in enumerate(factor_cols, start=1):
                 col_name = f"beta_{factor.lower().replace('-', '_')}"
                 betas.at[idx, col_name] = beta_vector[j]
 
@@ -76,133 +66,146 @@ def add_factor_betas(df, factor_cols=("Mkt_RF", "SMB", "HML"), window=36, min_pe
 
     return df
 
-# Step 2 
-def merge_data(stock_data, ff_data):
-    """
-    merge_data merges the windsorized data and fama_french_factors data.
-    the function merges the data on the month column.
-    merge_data(windsorized_data, fama_french_factors): DataFrame, DataFrame -> DataFrame.
-    """
-    windsorized_data = pd.read_csv(stock_data, parse_dates=["month"])
-    fama_french_factors = pd.read_csv(ff_data, parse_dates=["month"])
-    fama_french_factors = fama_french_factors.drop(columns=["Unnamed: 0"], errors="ignore") # drop the unnamed column
 
-    merged = pd.merge(windsorized_data, fama_french_factors, on="month", how="left")
-    merged = merged.sort_values(by=["SP Identifier", "month"])
-    # use .shift(-1) to get the next month's return
-    merged["next_mon_ret"] = merged.groupby("SP Identifier")["Monthly Total Return"].shift(-1)
-    # to calculate the target: the next month's excess return
-    rf_by_month = merged[["month", "Risk Free"]].drop_duplicates().sort_values("month")
-    rf_by_month["next_rf"] = rf_by_month["Risk Free"].shift(-1)
-    next_rf_map = rf_by_month.set_index("month")["next_rf"]
-    merged["next_rf_ret"] = merged["month"].map(next_rf_map)
-    merged["next_excess_ret"] = merged["next_mon_ret"] - merged["next_rf_ret"]
-    
-    # contemporaneous excess return for beta estimation
-    merged["excess_ret"] = merged["Monthly Total Return"] - merged["Risk Free"]
+def merge_data(stock_data_path, ff_data_path):
+    """
+    Merge windsorized characteristics with Fama-French factors on period_end.
+    Builds next-period excess returns and contemporaneous excess returns for betas.
+    """
+    # data from data_selection.py
+    windsorized = pd.read_csv(stock_data_path, parse_dates=["period_end"]).sort_values(["SP Identifier", "period_end"])
+    # data from Fama-French
+    fama_french = pd.read_csv(ff_data_path, parse_dates=["period_end"])
+    fama_french = fama_french.drop(columns=["Unnamed: 0"], errors = "ignore")
+    merged = pd.merge(windsorized, fama_french, on="period_end", how = "left")
+    merged = merged.sort_values(by=["SP Identifier", "period_end"])
+    # Future returns: Used to evaluate the performance of the model -> XGBoost
+    merged["next_ret_12m"] = (
+        merged.groupby("SP Identifier")["ret_1m"].transform(
+            lambda s: rolling_total_return(s.shift(-1), 12, 12)
+        )
+    )
+    merged["next_ret_12m"] = merged["next_ret_12m"].clip(*TARGET_CLIP_BOUNDS)
+    merged["next_excess_ret"] = merged["next_ret_12m"] - merged["next_rf_12m"]
+    # Uses trailing 12 month: feed to add_factor_betas
+    merged["excess_ret"] = merged["ret_12m"] - merged["Risk Free"]
     merged = add_factor_betas(merged)
-
-    # drop rows where the essential targets are NaN
+    # Rename the columns:
+    merged.rename(columns = {"beta_mkt_rf_ann": "beta_mkt_rf", 
+                             "beta_smb_ann": "beta_smb", 
+                             "beta_hml_ann": "beta_hml"}, inplace=True)
     model_data = merged.dropna(subset=["next_excess_ret"]).copy()
-    model_data.to_csv("model_data.csv")
+    model_data.to_csv("model_data.csv", index=False)
     return model_data
 
 merged_data = merge_data("windsorized_data.csv", "fama_french_factors.csv")
 
+# Step 2: cross-sectional regressions and averaging
 
-def fama_macbeth(df, feature_columns, target_col="next_excess_ret", id_col="SP Identifier", time_col="month", hac_lags=6):
+def fama_macbeth(df, feature_columns, hac_lags=3):
     """
-    Fama-Macbeth Regression for panel data.
-    Runs a cross-sectional regression at each time period to find the risk premium
+    fama_macbeth runs the classic two-step Fama–MacBeth procedure on the panel.
+    The function returns a DataFrame with the Fama-MacBeth results, a DataFrame with the scored data, and a DataFrame with the lambda table.
     """
-    df = df.sort_values([time_col, id_col]).copy()
+    target_col="next_excess_ret"
+    
+    df = df.sort_values(["period_end", "SP Identifier"]).copy()
     feature_columns = [col for col in feature_columns if col in df.columns]
-    # to store each month's cross-sectional regression for each month
+    # containing the list of per period lambda
     lambda_container = []
-    # track the features that are kept after standardization
     kept_features = set()
-    # group the data by month, each group represents one month's cross-section
-    # runs once per unique month, each group is a subset of the df containing only the rows for that month
-    for t, group in df.groupby(time_col, sort=True):
+
+    for t, group in df.groupby("period_end", sort=True):
         group = group.dropna(subset=[target_col])
         X_z, keep = zscore(group[feature_columns])
+        # Helper to standardize the features
         if X_z.empty:
             continue
-        # skip months with too few observations relative to usable regressors
+        # Not enough features to run the regression
         if len(group) < X_z.shape[1] + 3:
             continue
-        X_z = X_z.astype(float)
-        # adds a col of ones to a dataset, 
-        X = sm.add_constant(X_z)
-        # y: excess return next month
-        y = group[target_col].astype(float)
-        # Fit OLS Regression: r_{i,t+1} = λ0_t + Σ_k λ_{k,t} X_{i,k,t} + ε_{i,t+1}
+        # Design matrix: add a column of ones for the intercept
+        X = sm.add_constant(X_z.astype(float)) # casts to float
+        # vector of excess returns 
+        y = group[target_col].astype(float) #casts to float 
+        # Running Cross-Sectional Regression
         beta = sm.OLS(y, X).fit().params.rename(t)
-        # Save estimated coefficients (λ_t) for this month, labeling them by time (t)
         lambda_container.append(beta)
         kept_features.update(X_z.columns)
-    # combine all lambda_t estimates into one df
+
     lambdas = pd.DataFrame(lambda_container)
     feature_order = ["const"] + sorted(kept_features)
     lambdas = lambdas.reindex(columns=feature_order)
-    # Time average the factor premia
-    # lambda_hat k = average of lambda_{k, t} across time
+
     average_lambda = lambdas.mean()
-    # t-statistics: 
-        # large t: the factor has a statistically relationship with returns
-        # small t: the estimated premium could be due to other factors
+    # HAC t-statistics
     t_statistics = {}
     for col in lambdas.columns:
         series = lambdas[col].dropna()
-        if len(series) < 12:
+        if len(series) < 8:
             t_statistics[col] = np.nan
             continue
-        # OLS regression to estimate the factor premium
-        reg = sm.OLS(series.values, np.ones((len(series), 1))).fit(
-            cov_type = "HAC", cov_kwds = {'maxlags': hac_lags}
-        )
-        t_statistics[col] = reg.tvalues[0] # store the t-statistic for the factor premium
-    results = pd.DataFrame({
-        "lambda_mean": average_lambda, 
-        "t_stat": pd.Series(t_statistics)
-    }).drop("const", errors= "ignore") # drop the intercept row
-    # construct fama-macbeth linear singal for each observation
+        # Run a regression on a constant to get the mean
+        # Use HAC to account for autocorrelation and heteroskedasticity
+        reg = sm.OLS(series.values, np.ones((len(series), 1))).fit(cov_type="HAC", cov_kwds={"maxlags": hac_lags})
+        t_statistics[col] = reg.tvalues[0]
+
+    results = pd.DataFrame({"lambda_mean": average_lambda, "t_stat": pd.Series(t_statistics)}).drop("const", errors="ignore")
+    # Build the score board.
     df["FM_signal"] = np.nan
     fm_features = [col for col in feature_order if col != "const"]
     available_lambda = average_lambda.reindex(fm_features).fillna(0.0)
-    for t, group in df.groupby(time_col, sort=True):
+
+    for t, group in df.groupby("period_end", sort=True):
         X_z, _ = zscore(group[fm_features])
         if X_z.empty:
             continue
+        # fill in the missing features with 0.0
         X_z = X_z.reindex(columns=fm_features, fill_value=0.0).astype(float)
         df.loc[group.index, "FM_signal"] = X_z.to_numpy().dot(available_lambda.to_numpy())
-    
-    # estimated the stock's expected return 
-    # FM_signals:
-        # Positive: the stock has exposures associated with higher expected returns
-        # Negative: the stock has exposures associated with lower expected returns 
-    # results: a df with the factor premia and t-statistics
-    # df: the original df with the FM_signal column
-    # lambdas: a df with the factor premia for each month
+
+    print(df.columns)
     return results, df, lambdas
 
-# stock level features: 
+# Feature set (characteristics + factor betas)
+# candidate of pricing factors
 feature_lst = [
-    "PE", "PB", "PS", "OperatingMargin", "EbitdaMargin",
-    "DebtToEquity", "DebtToAssets", "IntCoverage", "CurrentRatio",
-    "Sales_YoY", "EPS_YoY", "momentum_12_1", "momentum_6",
-    "momentum_3", "rev_1m", "vol_12m",
-    "beta_mkt_rf", "beta_smb", "beta_hml"
+    "PE",
+    "PB",
+    "PS",
+    "OperatingMargin",
+    "EbitdaMargin",
+    "DebtToEquity",
+    "DebtToAssets",
+    "IntCoverage",
+    "CurrentRatio",
+    "Sales_YoY",
+    "EPS_YoY",
+    "return_1y",
+    "rev_1y",
+    "momentum_2y",
+    "momentum_3y",
+    "vol_3y",
+    "vol_5y",
+    "beta_mkt_rf",
+    "beta_smb",
+    "beta_hml",
 ]
+
+merged_data = merge_data("windsorized_data.csv", "fama_french_factors.csv")
 fm_results, fm_scored, lambda_table = fama_macbeth(merged_data, feature_lst)
 
+
 if __name__ == "__main__":
-    print("Fama-Macbeth Regression Results:")
-    print(fm_results)
-    print("\nFama-Macbeth Scored Data:")
-    print(fm_scored)
-    print("\nFama-Macbeth Lambda Table:")
-    print(lambda_table)
+    print("Fama-MacBeth Regression Results:")
+    print(fm_results.head())
+
+    print("\nFama-MacBeth Scored Data:")
+    print(fm_scored.head())
+
+    print("\nFama-MacBeth Lambda Table:")
+    print(lambda_table.head())
+
     print("saving the results to a csv file")
     fm_scored.to_csv("model_data_scored.csv", index=False)
     print("data saved...")
