@@ -46,6 +46,7 @@ def zscore(group):
     """
     x = group.replace([np.inf, -np.inf], np.nan)
     std = x.std(ddof=0)
+    # Documents which features survivied the filter.
     keep = std.gt(1e-8)
     x = x.loc[:, keep]
     z = (x - x.mean()) / std[keep]
