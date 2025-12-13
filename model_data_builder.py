@@ -66,23 +66,14 @@ def build_model_data(windsorized_path = "windsorized_data.csv", ff_factors_path=
     windsorized = pd.read_csv(windsorized_path, parse_dates=["period_end"]).sort_values(["SP Identifier", "period_end"])
     fama_french = pd.read_csv(ff_factors_path, parse_dates=["period_end"])
     fama_french = fama_french.drop(columns=["Unnamed: 0"], errors="ignore")
-
     merged = pd.merge(windsorized, fama_french, on="period_end", how="left")
     merged = merged.sort_values(["SP Identifier", "period_end"])
-
-    months_per_period = infer_months_per_period(merged, id_col="SP Identifier", date_col="period_end")
-
-
     merged["next_ret_12m"] = merged.groupby("SP Identifier")["ret_1m"].shift(-1)
-
-
     merged["next_ret_12m"] = merged["next_ret_12m"].clip(*TARGET_CLIP_BOUNDS)
     merged["next_excess_ret"] = merged["next_ret_12m"] - merged["next_rf_12m"]
-
     merged["excess_ret"] = merged["ret_12m"] - merged["Risk Free"]
     merged = add_factor_betas(merged)
     model_data = merged.dropna(subset=["next_excess_ret"]).copy()
-
     model_data.to_csv("model_data.csv", index=False)
 
     return model_data
