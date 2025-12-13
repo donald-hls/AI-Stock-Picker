@@ -3,7 +3,7 @@ import numpy as np
 # MonthEnd to target the end of a Month.
 from pandas.tseries.offsets import MonthEnd
 from pandas_datareader import data as pdr
-from utility import ratio_calculation, limiting_extreme_values, rolling_total_return
+from utility import ratio_calculation, limiting_extreme_values, rolling_total_return, infer_months_per_period
 from config import (
     COLUMN_NAME_MAPPING,
     FINANCIAL_VARS_IN_MILLIONS,
@@ -133,7 +133,10 @@ def add_macro_features(ann_data, macro_data, lag_periods = 1):
             macro_data_copy[col] = macro_data_copy[col].shift(lag_periods)
     return ann_data.merge(macro_data_copy, on="period_end", how="left")
     
-retval = add_macro_features(annual_data, macro_data)
+# If the panel is annual-ish (one observation per year), lag macro by ~12 months (one period).
+# If the panel is monthly, lag macro by 1 month.
+_months_per_period = infer_months_per_period(annual_data, id_col="SP Identifier", date_col="period_end")
+retval = add_macro_features(annual_data, macro_data, lag_periods=_months_per_period)
 
 def compute_features(monthly_df):
     """
@@ -142,6 +145,11 @@ def compute_features(monthly_df):
     compute_features(monthly_df): DataFrame -> DataFrame, list
     """
     monthly_df = monthly_df.sort_values(by=["SP Identifier", "period_end"]).copy()
+    # Infer panel spacing (monthly vs annual-ish) based on period_end gaps.
+    # - months_per_period ~= 1  => true monthly panel
+    # - months_per_period ~= 12 => one observation per year (annual panel)
+    months_per_period = infer_months_per_period(monthly_df, id_col="SP Identifier", date_col="period_end")
+    periods_per_year = max(1, int(round(12 / months_per_period)))
     # Rename Mapping rule 
     RENAME = {
         "P/E":"PE","P/B":"PB","P/S":"PS",
@@ -166,12 +174,27 @@ def compute_features(monthly_df):
 
     # Momentum / reversal and risk features derived from annual returns
     ret_1m_grouped = monthly_df.groupby("SP Identifier")["ret_1m"]
+    # Ensure "ret_12m" means trailing ~12-month return, regardless of sampling frequency.
+    # If the panel is annual (months_per_period ~ 12), then ret_1m is already ~1-year,
+    # and ret_12m should equal ret_1m (rolling window=1).
+    monthly_df["ret_12m"] = ret_1m_grouped.transform(
+        lambda s: rolling_total_return(s, periods_per_year, periods_per_year)
+    )
     monthly_df["return_1y"] = monthly_df["ret_12m"]
     monthly_df["rev_1y"] = -monthly_df["return_1y"]
-    monthly_df["momentum_2y"] = ret_1m_grouped.transform(lambda s: rolling_total_return(s, 24, 24))
-    monthly_df["momentum_3y"] = ret_1m_grouped.transform(lambda s: rolling_total_return(s, 36, 36))
-    monthly_df["vol_3y"] = ret_1m_grouped.transform(lambda s: s.rolling(36, 24).std())
-    monthly_df["vol_5y"] = ret_1m_grouped.transform(lambda s: s.rolling(60, 36).std())
+    monthly_df["momentum_2y"] = ret_1m_grouped.transform(
+        lambda s: rolling_total_return(s, 2 * periods_per_year, 2 * periods_per_year)
+    )
+    monthly_df["momentum_3y"] = ret_1m_grouped.transform(
+        lambda s: rolling_total_return(s, 3 * periods_per_year, 3 * periods_per_year)
+    )
+    # Volatility windows scale with the inferred frequency
+    monthly_df["vol_3y"] = ret_1m_grouped.transform(
+        lambda s: s.rolling(3 * periods_per_year, 2 * periods_per_year).std()
+    )
+    monthly_df["vol_5y"] = ret_1m_grouped.transform(
+        lambda s: s.rolling(5 * periods_per_year, 3 * periods_per_year).std()
+    )
     # put lag on the newly added features. 
     accounting_cols = ["PE","PB","PS","OperatingMargin","EbitdaMargin","DebtToEquity","DebtToAssets","IntCoverage","CurrentRatio"]
     calculated_cols = ["Sales_YoY","EPS_YoY","return_1y","rev_1y","momentum_2y","momentum_3y","vol_3y","vol_5y"]
