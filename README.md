@@ -1,6 +1,6 @@
 # AI-Stock-Picker
 
-## This project leverages a hybrid approach—combining classical financial econometrics (Fama-French) with modern machine learning (XGBoost)— to identifies opportunities by analyzing over 20 years of historical fundamental, market, and macroeconomic data (2001–2024).. By integrating fundamental metrics and macroeconomic indicators from FRED, the model selects a high-conviction 5-stock portfolio designed to evalluate how much they outperformed the broader market."
+This project leverages a hybrid approach—combining classical financial econometrics (Fama-French) with machine learning model (XGBoost)— to identify opportunities by analyzing over 20 years of historical fundamental, and macroeconomic data. By integrating fundamental metrics and macroeconomic indicators from FRED, the model selects 5-stock portfolio designed to evalluate how much they outperformed the broader market.
 
 ##  Data Processing
 - Obtained historical equity data from Wharton Research Data Services
@@ -18,7 +18,7 @@
 
 - XgBoost (Tree Models)
     - Uses RandomizedSearchCV to tune hyperparameters (learning rate, tree depth, and regularization) across 500 different iterations to ensure robust generalization.
-    - Picked 5 Stocks with the model
+    - Picked 5 Stocks with the model and backtested their performance against S&P500, maximum downturn, etc.
 
 
 
