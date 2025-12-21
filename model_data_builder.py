@@ -6,6 +6,40 @@ from utility import rolling_total_return, infer_months_per_period
 # To take away the outliers -> 98%
 TARGET_CLIP_BOUNDS = (-2.0, 2.0)
 
+def _forward_total_return(ret_series, window):
+    """
+    Compute forward total return over the next `window` periods for a single firm.
+
+    For row t, this returns:
+        prod_{k=1..window} (1 + r_{t+k}) - 1
+
+    If any of the required forward returns are missing/non-finite, output is NaN for that row.
+    """
+    if window <= 0:
+        window = 1
+    r = pd.to_numeric(ret_series, errors="coerce").to_numpy(dtype="float64", copy=False)
+    n = r.shape[0]
+    out = np.full(n, np.nan, dtype="float64")
+    if n <= window:
+        return pd.Series(out, index=ret_series.index)
+
+    finite = np.isfinite(r)
+    valid = finite.astype(np.int64)
+    cvalid = np.concatenate([[0], np.cumsum(valid)])
+
+    # Use log space for numerical stability: exp(sum(log(1+r))) - 1
+    logr = np.where(finite, np.log1p(r), 0.0)
+    clog = np.concatenate([[0.0], np.cumsum(logr)])
+
+    # For row i, we need returns r[i+1 : i+1+window]
+    # Vectorized window sums using cumulative sums.
+    # Length = n - window
+    valid_window_sum = cvalid[1 + window : n + 1] - cvalid[1 : n + 1 - window]
+    log_window_sum = clog[1 + window : n + 1] - clog[1 : n + 1 - window]
+    good = valid_window_sum == window
+    out[: n - window] = np.where(good, np.expm1(log_window_sum), np.nan)
+    return pd.Series(out, index=ret_series.index)
+
 
 def add_factor_betas(panel):
     """
@@ -68,7 +102,17 @@ def build_model_data(windsorized_path = "windsorized_data.csv", ff_factors_path=
     fama_french = fama_french.drop(columns=["Unnamed: 0"], errors="ignore")
     merged = pd.merge(windsorized, fama_french, on="period_end", how="left")
     merged = merged.sort_values(["SP Identifier", "period_end"])
-    merged["next_ret_12m"] = merged.groupby("SP Identifier")["ret_1m"].shift(-1)
+
+    # Infer the panel frequency to correctly define "forward ~12m" in *periods*.
+    # - monthly panel => months_per_period ~= 1  => forward_window ~= 12
+    # - annual-ish panel => months_per_period ~= 12 => forward_window ~= 1
+    months_per_period = infer_months_per_period(merged, id_col="SP Identifier", date_col="period_end")
+    forward_window = max(1, int(round(12 / months_per_period)))
+
+    # True forward total return (compounded) over the next ~12 months.
+    merged["next_ret_12m"] = merged.groupby("SP Identifier")["ret_1m"].transform(
+        lambda s: _forward_total_return(s, forward_window)
+    )
     merged["next_ret_12m"] = merged["next_ret_12m"].clip(*TARGET_CLIP_BOUNDS)
     merged["next_excess_ret"] = merged["next_ret_12m"] - merged["next_rf_12m"]
     merged["excess_ret"] = merged["ret_12m"] - merged["Risk Free"]
